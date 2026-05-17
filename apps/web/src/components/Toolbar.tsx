@@ -1,11 +1,36 @@
-import { useProject, type ToolMode, type ViewMode } from '../store/projectStore.js';
+import { type ToolMode, type ViewMode, useProject } from '../store/projectStore.js';
 
 const TOOLS: Array<{ id: ToolMode['kind']; label: string; glyph: string; hint: string }> = [
-  { id: 'select', label: 'Select', glyph: '⌖', hint: 'Click to select buildings or roof faces (V)' },
-  { id: 'draw-rect', label: 'Rectangle', glyph: '▭', hint: 'Click-drag to draw a rectangular building (R)' },
-  { id: 'draw-polygon', label: 'Polygon', glyph: '⬠', hint: 'Click vertices, double-click to close (P)' },
-  { id: 'push-pull', label: 'Push-pull', glyph: '↔', hint: 'Drag an edge to extend/contract a building (E)' },
-  { id: 'vertex', label: 'Vertex', glyph: '◇', hint: 'Drag a vertex to reshape (shift overrides snap)' },
+  {
+    id: 'select',
+    label: 'Select',
+    glyph: '⌖',
+    hint: 'Click to select buildings or roof faces (V)',
+  },
+  {
+    id: 'draw-rect',
+    label: 'Rectangle',
+    glyph: '▭',
+    hint: 'Click-drag to draw a rectangular building (R)',
+  },
+  {
+    id: 'draw-polygon',
+    label: 'Polygon',
+    glyph: '⬠',
+    hint: 'Click vertices, double-click to close (P)',
+  },
+  {
+    id: 'push-pull',
+    label: 'Push-pull',
+    glyph: '↔',
+    hint: 'Drag an edge to extend/contract a building (E)',
+  },
+  {
+    id: 'vertex',
+    label: 'Vertex',
+    glyph: '◇',
+    hint: 'Drag a vertex to reshape (shift overrides snap)',
+  },
 ];
 
 export function Toolbar(): JSX.Element {

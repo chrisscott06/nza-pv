@@ -4,14 +4,14 @@
 // =============================================================================
 
 import {
-  DEFAULT_PANEL_SIZE_M2,
-  DEFAULT_STOREY_HEIGHT_M,
-  SCHEMA_VERSION,
   type Building,
   type CameraState,
+  DEFAULT_PANEL_SIZE_M2,
+  DEFAULT_STOREY_HEIGHT_M,
   type ProjectFile,
   type Roof,
   type RoofFace,
+  SCHEMA_VERSION,
 } from '@nza-pv/shared';
 import { produce } from 'immer';
 import { nanoid } from 'nanoid';
@@ -63,11 +63,16 @@ type Actions = {
   setView: (view: ViewMode) => void;
   select: (selection: Selection) => void;
 
-  addBuilding: (b: Omit<Building, 'name' | 'id' | 'faces'> & { name?: string; id?: string; faces?: RoofFace[] }) => string;
+  addBuilding: (
+    b: Omit<Building, 'name' | 'id' | 'faces'> & { name?: string; id?: string; faces?: RoofFace[] },
+  ) => string;
   updateBuilding: (id: string, mutate: (b: Building) => void) => void;
   removeBuilding: (id: string) => void;
   renameBuilding: (id: string, name: string) => void;
-  setBuildingHeight: (id: string, opts: { storeys?: number; storey_height_m?: number; eave_height_m?: number }) => void;
+  setBuildingHeight: (
+    id: string,
+    opts: { storeys?: number; storey_height_m?: number; eave_height_m?: number },
+  ) => void;
   setRoof: (id: string, roof: Roof) => void;
   setFaces: (id: string, faces: RoofFace[]) => void;
   applyRoofToAll: (sourceId: string, targetIds: string[]) => void;
@@ -362,7 +367,10 @@ export const useProject = create<ProjectStore>((set, get) => ({
           for (const b of p.buildings) {
             if (ids.includes(b.id)) {
               b.eave_height_m = eave;
-              b.storeys = Math.max(1, Math.round(eave / (b.storey_height_m || DEFAULT_STOREY_HEIGHT_M)));
+              b.storeys = Math.max(
+                1,
+                Math.round(eave / (b.storey_height_m || DEFAULT_STOREY_HEIGHT_M)),
+              );
             }
           }
           touch(p);
@@ -479,7 +487,9 @@ export const selectActiveBuilding = (s: ProjectStore): Building | null => {
   return null;
 };
 
-export const selectActiveFace = (s: ProjectStore): { face: RoofFace; buildingId: string } | null => {
+export const selectActiveFace = (
+  s: ProjectStore,
+): { face: RoofFace; buildingId: string } | null => {
   if (!s.project) return null;
   const sel = s.selection;
   if (sel.kind !== 'face') return null;

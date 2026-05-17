@@ -3,12 +3,7 @@
 // scenarios here; L-shape coverage falls back to the OBB (a known limitation
 // documented in the brief escalation list).
 
-import {
-  metersToLngLat,
-  polygonAreaM2,
-  type Building,
-  type Polygon,
-} from '@nza-pv/shared';
+import { type Building, type Polygon, metersToLngLat, polygonAreaM2 } from '@nza-pv/shared';
 import { describe, expect, it } from 'vitest';
 import { defaultRoofForStyle } from './presets.js';
 import { regenerateFaces } from './regenerate.js';

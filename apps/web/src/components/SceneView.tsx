@@ -1,17 +1,17 @@
 // 3D scene — building masses + roof faces. Cameras orbit around the project
 // centroid. Picking and per-face interactivity arrives with Day 7.
 
-import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
-import { useEffect, useMemo, useRef } from 'react';
-import * as THREE from 'three';
 import {
+  type Building,
+  type RoofFace,
   lngLatToMeters,
   polygonCentroidLngLat,
   polygonRingToMeters,
-  type Building,
-  type RoofFace,
 } from '@nza-pv/shared';
+import { OrbitControls } from '@react-three/drei';
+import { Canvas, useThree } from '@react-three/fiber';
+import { useEffect, useMemo, useRef } from 'react';
+import * as THREE from 'three';
 import { selectActiveBuilding, selectActiveFace, useProject } from '../store/projectStore.js';
 
 const WALL_COLOR = 0xf0ebe5;
@@ -57,7 +57,9 @@ export function SceneView(): JSX.Element {
             building={b}
             anchor={anchor}
             isSelected={activeBuilding?.id === b.id}
-            selectedFaceId={activeFaceSel && activeFaceSel.buildingId === b.id ? activeFaceSel.face.id : null}
+            selectedFaceId={
+              activeFaceSel && activeFaceSel.buildingId === b.id ? activeFaceSel.face.id : null
+            }
             onPickBuilding={() => select({ kind: 'building', buildingId: b.id })}
             onPickFace={(faceId) => select({ kind: 'face', buildingId: b.id, faceId })}
           />
@@ -89,14 +91,20 @@ function Ground(): JSX.Element {
   );
 }
 
-function CameraFitter({ buildings, anchor }: { buildings: Building[]; anchor: [number, number] }): null {
+function CameraFitter({
+  buildings,
+  anchor,
+}: { buildings: Building[]; anchor: [number, number] }): null {
   const camera = useThree((s) => s.camera);
   const did = useRef(false);
   useEffect(() => {
     if (did.current || buildings.length === 0) return;
     did.current = true;
     // Compute bounding box of all buildings and zoom-to-fit roughly.
-    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    let minX = Number.POSITIVE_INFINITY,
+      maxX = Number.NEGATIVE_INFINITY,
+      minZ = Number.POSITIVE_INFINITY,
+      maxZ = Number.NEGATIVE_INFINITY;
     for (const b of buildings) {
       const ring = polygonRingToMeters(b.footprint, anchor);
       const centroid = lngLatToMeters(polygonCentroidLngLat(b.footprint), anchor);
@@ -138,7 +146,10 @@ function BuildingMesh({
   onPickBuilding: () => void;
   onPickFace: (faceId: string) => void;
 }): JSX.Element {
-  const centroid = useMemo(() => lngLatToMeters(polygonCentroidLngLat(building.footprint), anchor), [building, anchor]);
+  const centroid = useMemo(
+    () => lngLatToMeters(polygonCentroidLngLat(building.footprint), anchor),
+    [building, anchor],
+  );
   const ring = useMemo(() => {
     const r = polygonRingToMeters(building.footprint, anchor);
     return r.map((p) => [p[0] - centroid[0], p[1] - centroid[1]] as [number, number]);
@@ -151,14 +162,23 @@ function BuildingMesh({
       else shape.lineTo(p[0], p[1]);
     });
     shape.closePath();
-    const g = new THREE.ExtrudeGeometry(shape, { depth: building.eave_height_m, bevelEnabled: false });
+    const g = new THREE.ExtrudeGeometry(shape, {
+      depth: building.eave_height_m,
+      bevelEnabled: false,
+    });
     g.rotateX(-Math.PI / 2);
     g.computeVertexNormals();
     return g;
   }, [ring, building.eave_height_m]);
 
   return (
-    <group position={[centroid[0], 0, -centroid[1]]} onClick={(e) => { e.stopPropagation(); onPickBuilding(); }}>
+    <group
+      position={[centroid[0], 0, -centroid[1]]}
+      onClick={(e) => {
+        e.stopPropagation();
+        onPickBuilding();
+      }}
+    >
       <mesh castShadow receiveShadow geometry={wallGeom}>
         <meshStandardMaterial color={WALL_COLOR} roughness={0.88} />
       </mesh>
@@ -211,7 +231,8 @@ function FaceMesh({
   const baseColor = face.role === 'sawtooth_glazing' ? 0xbfd6df : ROOF_COLOR;
   const color = highlight
     ? ROOF_HOT
-    : !face.is_pv_eligible && (face.role === 'main' || face.role.startsWith('mansard') || face.role.startsWith('gambrel'))
+    : !face.is_pv_eligible &&
+        (face.role === 'main' || face.role.startsWith('mansard') || face.role.startsWith('gambrel'))
       ? ROOF_PV_OFF
       : baseColor;
   const opacity = dim ? 0.7 : 1;
@@ -232,7 +253,9 @@ function FaceMesh({
         side={THREE.DoubleSide}
         transparent={opacity < 1}
         opacity={opacity}
-        emissive={highlight && buildingSelected ? new THREE.Color(0x113322) : new THREE.Color(0x000000)}
+        emissive={
+          highlight && buildingSelected ? new THREE.Color(0x113322) : new THREE.Color(0x000000)
+        }
       />
     </mesh>
   );
@@ -298,16 +321,20 @@ function earcut(coords: number[]): number[] {
       const i0 = verts[(i - 1 + verts.length) % verts.length]!;
       const i1 = verts[i]!;
       const i2 = verts[(i + 1) % verts.length]!;
-      const ax = coords[i0 * 2]!, ay = coords[i0 * 2 + 1]!;
-      const bx = coords[i1 * 2]!, by = coords[i1 * 2 + 1]!;
-      const cx = coords[i2 * 2]!, cy = coords[i2 * 2 + 1]!;
+      const ax = coords[i0 * 2]!,
+        ay = coords[i0 * 2 + 1]!;
+      const bx = coords[i1 * 2]!,
+        by = coords[i1 * 2 + 1]!;
+      const cx = coords[i2 * 2]!,
+        cy = coords[i2 * 2 + 1]!;
       const cross = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
       if (cross <= 0) continue;
       let inside = false;
       for (let j = 0; j < verts.length; j++) {
         const id = verts[j]!;
         if (id === i0 || id === i1 || id === i2) continue;
-        const px = coords[id * 2]!, py = coords[id * 2 + 1]!;
+        const px = coords[id * 2]!,
+          py = coords[id * 2 + 1]!;
         if (pointInTri(px, py, ax, ay, bx, by, cx, cy)) {
           inside = true;
           break;
@@ -326,10 +353,22 @@ function earcut(coords: number[]): number[] {
   return out;
 }
 
-function pointInTri(px: number, py: number, ax: number, ay: number, bx: number, by: number, cx: number, cy: number): boolean {
-  const v0x = cx - ax, v0y = cy - ay;
-  const v1x = bx - ax, v1y = by - ay;
-  const v2x = px - ax, v2y = py - ay;
+function pointInTri(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+): boolean {
+  const v0x = cx - ax,
+    v0y = cy - ay;
+  const v1x = bx - ax,
+    v1y = by - ay;
+  const v2x = px - ax,
+    v2y = py - ay;
   const dot00 = v0x * v0x + v0y * v0y;
   const dot01 = v0x * v1x + v0y * v1y;
   const dot02 = v0x * v2x + v0y * v2y;

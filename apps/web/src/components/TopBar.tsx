@@ -58,7 +58,10 @@ export function TopBar(): JSX.Element {
         }}
         aria-label="Project name"
       />
-      <span className="last-saved" title={lastSavedAt ? new Date(lastSavedAt).toLocaleString() : ''}>
+      <span
+        className="last-saved"
+        title={lastSavedAt ? new Date(lastSavedAt).toLocaleString() : ''}
+      >
         {lastSavedAt ? `Saved ${relativeTime(lastSavedAt)}` : 'Unsaved'}
       </span>
       <div className="spacer" />

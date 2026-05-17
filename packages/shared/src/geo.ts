@@ -25,9 +25,9 @@ export function lngLatToMeters(point: LngLat, anchor: LngLat): XY {
 export function metersToLngLat(xy: XY, anchor: LngLat): LngLat {
   const [x, y] = xy;
   const [aLng, aLat] = anchor;
-  const lat = aLat + (y / EARTH_RADIUS_M) / DEG;
+  const lat = aLat + y / EARTH_RADIUS_M / DEG;
   const meanLat = (lat + aLat) * 0.5 * DEG;
-  const lng = aLng + (x / (EARTH_RADIUS_M * Math.cos(meanLat))) / DEG;
+  const lng = aLng + x / (EARTH_RADIUS_M * Math.cos(meanLat)) / DEG;
   return [lng, lat];
 }
 
@@ -107,7 +107,11 @@ export function polygon3DArea(verts: Array<[number, number, number]>): number {
   let total = 0;
   const a = verts[0] as [number, number, number];
   for (let i = 1; i < verts.length - 1; i++) {
-    total += triangleArea3D(a, verts[i] as [number, number, number], verts[i + 1] as [number, number, number]);
+    total += triangleArea3D(
+      a,
+      verts[i] as [number, number, number],
+      verts[i + 1] as [number, number, number],
+    );
   }
   return total;
 }

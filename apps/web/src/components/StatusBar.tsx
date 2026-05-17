@@ -25,7 +25,9 @@ export function StatusBar(): JSX.Element {
       <span className="muted">{project.buildings.length} buildings</span>
       <div className="spacer" />
       <span className="muted">
-        {lastSavedAt ? `Last save ${new Date(lastSavedAt).toLocaleTimeString()}` : 'Autosaving to browser'}
+        {lastSavedAt
+          ? `Last save ${new Date(lastSavedAt).toLocaleTimeString()}`
+          : 'Autosaving to browser'}
       </span>
     </div>
   );

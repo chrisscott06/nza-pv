@@ -1,14 +1,17 @@
 // Manages the MapLibre source + layers showing buildings, the in-progress
 // drawing, and the selection highlight.
 
-import type maplibregl from 'maplibre-gl';
-import type { Feature, FeatureCollection, Polygon } from 'geojson';
 import type { Building } from '@nza-pv/shared';
+import type { Feature, FeatureCollection, Polygon } from 'geojson';
+import type maplibregl from 'maplibre-gl';
 
 const BUILDINGS_SRC = 'buildings';
 const DRAFT_SRC = 'draft';
 
-export type BuildingFeature = Feature<Polygon, { id: string; selected: boolean; name: string; height: number }>;
+export type BuildingFeature = Feature<
+  Polygon,
+  { id: string; selected: boolean; name: string; height: number }
+>;
 
 export function installLayers(map: maplibregl.Map): void {
   if (map.getSource(BUILDINGS_SRC)) return;
@@ -54,7 +57,11 @@ export function installLayers(map: maplibregl.Map): void {
   });
 }
 
-export function updateBuildings(map: maplibregl.Map, buildings: Building[], selectedIds: Set<string>): void {
+export function updateBuildings(
+  map: maplibregl.Map,
+  buildings: Building[],
+  selectedIds: Set<string>,
+): void {
   const src = map.getSource(BUILDINGS_SRC) as maplibregl.GeoJSONSource | undefined;
   if (!src) return;
   const fc: FeatureCollection<Polygon> = {

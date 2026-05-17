@@ -94,20 +94,64 @@ function flat({ halfL, halfW, eave }: GeneratorInput, parapet: number): LocalFac
     const z0 = eave;
     const z1 = eave + parapet;
     faces.push(
-      { role: 'gable_end_wall', ring: [[-halfL, halfW, z0], [halfL, halfW, z0], [halfL, halfW, z1], [-halfL, halfW, z1]] }, // N
-      { role: 'gable_end_wall', ring: [[halfL, -halfW, z0], [-halfL, -halfW, z0], [-halfL, -halfW, z1], [halfL, -halfW, z1]] }, // S
-      { role: 'gable_end_wall', ring: [[halfL, halfW, z0], [halfL, -halfW, z0], [halfL, -halfW, z1], [halfL, halfW, z1]] }, // E
-      { role: 'gable_end_wall', ring: [[-halfL, -halfW, z0], [-halfL, halfW, z0], [-halfL, halfW, z1], [-halfL, -halfW, z1]] }, // W
+      {
+        role: 'gable_end_wall',
+        ring: [
+          [-halfL, halfW, z0],
+          [halfL, halfW, z0],
+          [halfL, halfW, z1],
+          [-halfL, halfW, z1],
+        ],
+      }, // N
+      {
+        role: 'gable_end_wall',
+        ring: [
+          [halfL, -halfW, z0],
+          [-halfL, -halfW, z0],
+          [-halfL, -halfW, z1],
+          [halfL, -halfW, z1],
+        ],
+      }, // S
+      {
+        role: 'gable_end_wall',
+        ring: [
+          [halfL, halfW, z0],
+          [halfL, -halfW, z0],
+          [halfL, -halfW, z1],
+          [halfL, halfW, z1],
+        ],
+      }, // E
+      {
+        role: 'gable_end_wall',
+        ring: [
+          [-halfL, -halfW, z0],
+          [-halfL, halfW, z0],
+          [-halfL, halfW, z1],
+          [-halfL, -halfW, z1],
+        ],
+      }, // W
     );
     // Inset top recess
     const ix = halfL - inset;
     const iy = halfW - inset;
-    faces.push({ role: 'main', ring: [[-ix, -iy, z1], [ix, -iy, z1], [ix, iy, z1], [-ix, iy, z1]] });
+    faces.push({
+      role: 'main',
+      ring: [
+        [-ix, -iy, z1],
+        [ix, -iy, z1],
+        [ix, iy, z1],
+        [-ix, iy, z1],
+      ],
+    });
   }
   return faces;
 }
 
-function mono({ halfL, halfW, eave }: GeneratorInput, pitch: number, highSide: 'N' | 'E' | 'S' | 'W' | number): LocalFace[] {
+function mono(
+  { halfL, halfW, eave }: GeneratorInput,
+  pitch: number,
+  highSide: 'N' | 'E' | 'S' | 'W' | number,
+): LocalFace[] {
   const rise = 2 * halfW * Math.tan(pitch * DEG);
   // Default: high side at +X (along length) → rotate later if highSide differs.
   // Simpler: build with high side at +Y (north in OBB-local) and pick the right rotation.
@@ -143,17 +187,23 @@ function mono({ halfL, halfW, eave }: GeneratorInput, pitch: number, highSide: '
   );
   // Rotate the whole thing to put the high side at the requested cardinal.
   const targetRot = highSideToRotation(highSide);
-  return targetRot === 0 ? faces : faces.map((f) => ({ role: f.role, ring: f.ring.map((p) => rotateZ(p, targetRot)) }));
+  return targetRot === 0
+    ? faces
+    : faces.map((f) => ({ role: f.role, ring: f.ring.map((p) => rotateZ(p, targetRot)) }));
 }
 
 function highSideToRotation(highSide: 'N' | 'E' | 'S' | 'W' | number): number {
   // Built with high side at +Y (north). Rotate to align with requested side.
-  if (typeof highSide === 'number') return ((highSide - 0) * DEG); // user gave bearing
+  if (typeof highSide === 'number') return (highSide - 0) * DEG; // user gave bearing
   switch (highSide) {
-    case 'N': return 0;
-    case 'E': return -Math.PI / 2;
-    case 'S': return Math.PI;
-    case 'W': return Math.PI / 2;
+    case 'N':
+      return 0;
+    case 'E':
+      return -Math.PI / 2;
+    case 'S':
+      return Math.PI;
+    case 'W':
+      return Math.PI / 2;
   }
 }
 
@@ -242,7 +292,11 @@ function hip({ halfL, halfW, eave }: GeneratorInput, pitch: number): LocalFace[]
   ];
 }
 
-function dutchHip({ halfL, halfW, eave }: GeneratorInput, pitch: number, hipRatio: number): LocalFace[] {
+function dutchHip(
+  { halfL, halfW, eave }: GeneratorInput,
+  pitch: number,
+  hipRatio: number,
+): LocalFace[] {
   const rise = halfW * Math.tan(pitch * DEG);
   const z0 = eave;
   const z1 = eave + rise;
@@ -281,7 +335,12 @@ function dutchHip({ halfL, halfW, eave }: GeneratorInput, pitch: number, hipRati
   ];
 }
 
-function gambrel({ halfL, halfW, eave }: GeneratorInput, lower: number, upper: number, breakH: number): LocalFace[] {
+function gambrel(
+  { halfL, halfW, eave }: GeneratorInput,
+  lower: number,
+  upper: number,
+  breakH: number,
+): LocalFace[] {
   // Lower slopes from eave up & in to break-height, upper slopes to ridge.
   const z0 = eave;
   const z1 = eave + breakH;
@@ -355,7 +414,12 @@ function gambrel({ halfL, halfW, eave }: GeneratorInput, lower: number, upper: n
   return faces;
 }
 
-function mansard({ halfL, halfW, eave }: GeneratorInput, lower: number, upper: number, breakH: number): LocalFace[] {
+function mansard(
+  { halfL, halfW, eave }: GeneratorInput,
+  lower: number,
+  upper: number,
+  breakH: number,
+): LocalFace[] {
   // Like gambrel but hipped — lower slopes on all 4 sides, upper roof is a small flat or low-pitch hip.
   const z0 = eave;
   const z1 = eave + breakH;
@@ -442,7 +506,12 @@ function mansard({ halfL, halfW, eave }: GeneratorInput, lower: number, upper: n
   return faces;
 }
 
-function saltbox({ halfL, halfW, eave }: GeneratorInput, front: number, back: number, offsetPct: number): LocalFace[] {
+function saltbox(
+  { halfL, halfW, eave }: GeneratorInput,
+  front: number,
+  back: number,
+  offsetPct: number,
+): LocalFace[] {
   const z0 = eave;
   // Move ridge in Y by offsetPct (between -100 and +100 → -halfW..+halfW range).
   const ridgeY = (offsetPct / 100) * halfW * 0.9;
@@ -483,7 +552,12 @@ function saltbox({ halfL, halfW, eave }: GeneratorInput, front: number, back: nu
   ];
 }
 
-function sawtooth({ halfL, halfW, eave }: GeneratorInput, count: number, pitch: number, glazingW: number): LocalFace[] {
+function sawtooth(
+  { halfL, halfW, eave }: GeneratorInput,
+  count: number,
+  pitch: number,
+  glazingW: number,
+): LocalFace[] {
   count = Math.max(2, Math.floor(count));
   const totalSpan = 2 * halfL;
   const bayWidth = totalSpan / count;
@@ -519,7 +593,11 @@ function sawtooth({ halfL, halfW, eave }: GeneratorInput, count: number, pitch: 
   return faces;
 }
 
-function butterfly({ halfL, halfW, eave }: GeneratorInput, pitch: number, valleyDepth: number): LocalFace[] {
+function butterfly(
+  { halfL, halfW, eave }: GeneratorInput,
+  pitch: number,
+  valleyDepth: number,
+): LocalFace[] {
   // Two faces that meet at a valley in the centre. Valley sits below eaves.
   // For visual interest, the eaves are at z = eave + (halfW * tan(pitch))/2,
   // and the valley is at z = eave + that height - valleyDepth.

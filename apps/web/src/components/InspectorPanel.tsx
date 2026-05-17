@@ -3,6 +3,7 @@
 
 import { PANEL_PRESETS, summarisePv } from '@nza-pv/shared';
 import { selectActiveBuilding, selectActiveFace, useProject } from '../store/projectStore.js';
+import { BulkOpsPanel } from './BulkOpsPanel.js';
 import { RoofBuilder } from './RoofBuilder.js';
 
 export function InspectorPanel(): JSX.Element {
@@ -31,14 +32,19 @@ export function InspectorPanel(): JSX.Element {
     return (
       <div>
         <div style={{ marginBottom: 8, fontSize: 13 }}>
-          <strong>{cardinalLabel(face.cardinal)} {roleLabel(face.role)}</strong>
+          <strong>
+            {cardinalLabel(face.cardinal)} {roleLabel(face.role)}
+          </strong>
           <div className="muted" style={{ fontSize: 12 }}>
             on {building.name}
           </div>
         </div>
         <ReadOnlyRow label="Area" value={`${face.area_m2.toFixed(1)} m²`} />
         <ReadOnlyRow label="Tilt" value={`${face.tilt_deg.toFixed(1)}°`} />
-        <ReadOnlyRow label="Azimuth" value={`${face.azimuth_deg.toFixed(0)}° ${face.cardinal === 'flat' ? '' : face.cardinal}`} />
+        <ReadOnlyRow
+          label="Azimuth"
+          value={`${face.azimuth_deg.toFixed(0)}° ${face.cardinal === 'flat' ? '' : face.cardinal}`}
+        />
 
         <div className="field-row" style={{ marginTop: 12 }}>
           <label>PV eligible</label>
@@ -103,7 +109,9 @@ export function InspectorPanel(): JSX.Element {
           min={1}
           max={20}
           value={building.storeys}
-          onChange={(e) => setBuildingHeight(building.id, { storeys: Math.max(1, Number(e.target.value)) })}
+          onChange={(e) =>
+            setBuildingHeight(building.id, { storeys: Math.max(1, Number(e.target.value)) })
+          }
         />
       </div>
       <div className="field-row">
@@ -114,7 +122,9 @@ export function InspectorPanel(): JSX.Element {
           min={2}
           max={6}
           value={building.storey_height_m}
-          onChange={(e) => setBuildingHeight(building.id, { storey_height_m: Number(e.target.value) })}
+          onChange={(e) =>
+            setBuildingHeight(building.id, { storey_height_m: Number(e.target.value) })
+          }
         />
       </div>
       <div className="field-row">
@@ -124,11 +134,15 @@ export function InspectorPanel(): JSX.Element {
           step={0.1}
           min={2}
           value={building.eave_height_m}
-          onChange={(e) => setBuildingHeight(building.id, { eave_height_m: Number(e.target.value) })}
+          onChange={(e) =>
+            setBuildingHeight(building.id, { eave_height_m: Number(e.target.value) })
+          }
         />
       </div>
 
       <RoofBuilder building={building} />
+
+      <BulkOpsPanel buildingId={building.id} />
 
       <button
         type="button"
@@ -151,7 +165,9 @@ function ReadOnlyRow({ label, value }: { label: string; value: string }): JSX.El
   return (
     <div className="field-row">
       <label>{label}</label>
-      <div className="tabular" style={{ textAlign: 'right' }}>{value}</div>
+      <div className="tabular" style={{ textAlign: 'right' }}>
+        {value}
+      </div>
     </div>
   );
 }

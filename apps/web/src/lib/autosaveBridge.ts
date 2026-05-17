@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useProject } from '../store/projectStore.js';
-import { writeAutosave, clearAutosave } from './persistence.js';
+import { clearAutosave, writeAutosave } from './persistence.js';
 
 const DEBOUNCE_MS = 400;
 

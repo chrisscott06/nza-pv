@@ -1,5 +1,5 @@
-import { LeftRail } from './components/LeftRail.js';
 import { Landing } from './components/Landing.js';
+import { LeftRail } from './components/LeftRail.js';
 import { StatusBar } from './components/StatusBar.js';
 import { ToastStack } from './components/ToastStack.js';
 import { TopBar } from './components/TopBar.js';
@@ -13,7 +13,13 @@ export function App(): JSX.Element {
     <div className="app-shell">
       <TopBar />
       <LeftRail />
-      {hasProject ? <Workspace /> : <div className="main"><Landing /></div>}
+      {hasProject ? (
+        <Workspace />
+      ) : (
+        <div className="main">
+          <Landing />
+        </div>
+      )}
       <StatusBar />
       <ToastStack />
     </div>

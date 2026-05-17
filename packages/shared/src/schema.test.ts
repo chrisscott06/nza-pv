@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ROOF_STYLES,
+  SCHEMA_VERSION,
   azimuthToCardinal,
   defaultFaceEligibility,
   isProjectFile,
@@ -8,8 +10,6 @@ import {
   polygonAreaM2,
   polygonAzimuthDeg,
   polygonTiltDeg,
-  ROOF_STYLES,
-  SCHEMA_VERSION,
   summarisePv,
 } from './index.js';
 
@@ -22,7 +22,9 @@ describe('schema', () => {
     expect(isProjectFile(null)).toBe(false);
     expect(isProjectFile({})).toBe(false);
     expect(isProjectFile({ schema_version: '0.9', project: {}, buildings: [] })).toBe(false);
-    expect(isProjectFile({ schema_version: SCHEMA_VERSION, project: {}, buildings: [] })).toBe(true);
+    expect(isProjectFile({ schema_version: SCHEMA_VERSION, project: {}, buildings: [] })).toBe(
+      true,
+    );
   });
 });
 

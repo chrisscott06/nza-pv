@@ -1,6 +1,9 @@
 // Top-level: takes a Building, regenerates its `RoofFace[]`.
 
 import {
+  type Building,
+  type Cardinal,
+  type RoofFace,
   azimuthToCardinal,
   metersToLngLat,
   polygon3DArea,
@@ -8,13 +11,10 @@ import {
   polygonCentroidLngLat,
   polygonRingToMeters,
   polygonTiltDeg,
-  type Building,
-  type Cardinal,
-  type RoofFace,
 } from '@nza-pv/shared';
 import { nanoid } from 'nanoid';
-import { boxToWorld, orientedBoundingBox } from './orientedBox.js';
 import { generateRoof } from './generators.js';
+import { boxToWorld, orientedBoundingBox } from './orientedBox.js';
 
 const PV_ELIGIBLE_MAX_TILT = 60;
 

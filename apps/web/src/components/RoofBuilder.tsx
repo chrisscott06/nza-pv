@@ -2,10 +2,10 @@
 // Placeholder shown when no calc engine is wired up; on Day 5+ we replace
 // the preset action with a real calc-engine call.
 
-import { ROOF_STYLES, type Building, type Roof, type RoofStyle } from '@nza-pv/shared';
-import { useProject } from '../store/projectStore.js';
-import { regenerateFaces } from '../lib/roof/regenerate.js';
+import { type Building, ROOF_STYLES, type Roof, type RoofStyle } from '@nza-pv/shared';
 import { defaultRoofForStyle, presetLabel, presetThumbnail } from '../lib/roof/presets.js';
+import { regenerateFaces } from '../lib/roof/regenerate.js';
+import { useProject } from '../store/projectStore.js';
 
 export function RoofBuilder({ building }: { building: Building }): JSX.Element {
   const setRoof = useProject((s) => s.setRoof);
@@ -26,7 +26,9 @@ export function RoofBuilder({ building }: { building: Building }): JSX.Element {
 
   return (
     <div style={{ marginTop: 14 }}>
-      <h4 className="section-title" style={{ margin: '4px 0 8px' }}>Roof preset</h4>
+      <h4 className="section-title" style={{ margin: '4px 0 8px' }}>
+        Roof preset
+      </h4>
       <div className="preset-gallery">
         {ROOF_STYLES.map((s) => (
           <button
@@ -65,7 +67,10 @@ function RoofParams({ roof, onChange }: { roof: Roof; onChange: (r: Roof) => voi
     case 'mono':
       return (
         <>
-          <PitchSlider value={roof.pitch_deg} onChange={(v) => onChange({ ...roof, pitch_deg: v })} />
+          <PitchSlider
+            value={roof.pitch_deg}
+            onChange={(v) => onChange({ ...roof, pitch_deg: v })}
+          />
           <SelectRow
             label="High side"
             value={String(roof.high_side)}
@@ -87,7 +92,10 @@ function RoofParams({ roof, onChange }: { roof: Roof; onChange: (r: Roof) => voi
     case 'butterfly':
       return (
         <>
-          <PitchSlider value={(roof as { pitch_deg: number }).pitch_deg} onChange={(v) => onChange({ ...roof, pitch_deg: v } as Roof)} />
+          <PitchSlider
+            value={(roof as { pitch_deg: number }).pitch_deg}
+            onChange={(v) => onChange({ ...roof, pitch_deg: v } as Roof)}
+          />
           {'ridge_axis' in roof && (
             <SelectRow
               label="Ridge axis"
@@ -97,7 +105,9 @@ function RoofParams({ roof, onChange }: { roof: Roof; onChange: (r: Roof) => voi
                 ['shortest', 'Shortest edge'],
                 ['custom', 'Custom angle'],
               ]}
-              onChange={(v) => onChange({ ...roof, ridge_axis: v as 'longest' | 'shortest' | 'custom' } as Roof)}
+              onChange={(v) =>
+                onChange({ ...roof, ridge_axis: v as 'longest' | 'shortest' | 'custom' } as Roof)
+              }
             />
           )}
           {'hip_ratio' in roof && (
@@ -175,7 +185,10 @@ function RoofParams({ roof, onChange }: { roof: Roof; onChange: (r: Roof) => voi
     case 'sawtooth':
       return (
         <>
-          <PitchSlider value={roof.pitch_deg} onChange={(v) => onChange({ ...roof, pitch_deg: v })} />
+          <PitchSlider
+            value={roof.pitch_deg}
+            onChange={(v) => onChange({ ...roof, pitch_deg: v })}
+          />
           <RangeRow
             label="Pitches"
             min={2}
@@ -200,7 +213,11 @@ function RoofParams({ roof, onChange }: { roof: Roof; onChange: (r: Roof) => voi
   }
 }
 
-function PitchSlider({ value, onChange, label = 'Pitch' }: { value: number; onChange: (v: number) => void; label?: string }): JSX.Element {
+function PitchSlider({
+  value,
+  onChange,
+  label = 'Pitch',
+}: { value: number; onChange: (v: number) => void; label?: string }): JSX.Element {
   return (
     <RangeRow label={label} unit="°" min={0} max={60} step={1} value={value} onChange={onChange} />
   );

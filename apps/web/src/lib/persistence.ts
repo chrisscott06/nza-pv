@@ -1,6 +1,6 @@
 // Save/load .nzapv files + browser-localStorage autosave.
 
-import { isProjectFile, SCHEMA_VERSION, type ProjectFile } from '@nza-pv/shared';
+import { type ProjectFile, SCHEMA_VERSION, isProjectFile } from '@nza-pv/shared';
 
 const AUTOSAVE_KEY = 'nza-pv:autosave:v1';
 
@@ -30,7 +30,9 @@ function safeJsonParse(text: string): unknown {
 
 /** Trigger a download of the current project as `<name>.nzapv`. */
 export function downloadProject(project: ProjectFile, suggestedName?: string): void {
-  const name = (suggestedName ?? project.project.name ?? 'project').replace(/[^\w.\- ]+/g, '_').trim();
+  const name = (suggestedName ?? project.project.name ?? 'project')
+    .replace(/[^\w.\- ]+/g, '_')
+    .trim();
   const text = JSON.stringify(project, null, 2);
   const blob = new Blob([text], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -121,7 +123,11 @@ export function rememberRecent(project: ProjectFile): void {
   try {
     const existing = loadRecents().filter((r) => r.id !== project.project.id);
     const next = [
-      { id: project.project.id, name: project.project.name, last_modified: project.project.last_modified },
+      {
+        id: project.project.id,
+        name: project.project.name,
+        last_modified: project.project.last_modified,
+      },
       ...existing,
     ].slice(0, 6);
     localStorage.setItem(RECENTS_KEY, JSON.stringify(next));

@@ -68,7 +68,12 @@ export function Landing(): JSX.Element {
               <label>Recently saved</label>
               <div className="recents">
                 {recents.map((r) => (
-                  <div key={r.id} className="row" onClick={handleOpen} title="Re-open the .nzapv file">
+                  <div
+                    key={r.id}
+                    className="row"
+                    onClick={handleOpen}
+                    title="Re-open the .nzapv file"
+                  >
                     <span className="name">{r.name}</span>
                     <span className="when">{new Date(r.last_modified).toLocaleDateString()}</span>
                   </div>

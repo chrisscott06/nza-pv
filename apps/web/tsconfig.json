@@ -9,5 +9,6 @@
       "@nza-pv/shared/*": ["../../packages/shared/src/*"]
     }
   },
-  "include": ["src/**/*", "tests/**/*", "../../packages/shared/src/**/*"]
+  "include": ["src/**/*", "../../packages/shared/src/**/*"],
+  "exclude": ["tests/e2e/**/*", "dist", "node_modules"]
 }

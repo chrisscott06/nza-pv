@@ -50,10 +50,10 @@ function boxAtAngle(points: XY[], angle: number): OrientedBox {
   // Rotate points by -angle so the box is axis-aligned, then compute bounds.
   const cos = Math.cos(-angle);
   const sin = Math.sin(-angle);
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
   for (const p of points) {
     const rx = p[0] * cos - p[1] * sin;
     const ry = p[0] * sin + p[1] * cos;
@@ -78,7 +78,13 @@ function boxAtAngle(points: XY[], angle: number): OrientedBox {
   return { center: [rcx, rcy], length, width, rotation, corners };
 }
 
-function unrotatedCorners(minX: number, maxX: number, minY: number, maxY: number, angle: number): [XY, XY, XY, XY] {
+function unrotatedCorners(
+  minX: number,
+  maxX: number,
+  minY: number,
+  maxY: number,
+  angle: number,
+): [XY, XY, XY, XY] {
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
   const pts: XY[] = [
@@ -87,23 +93,31 @@ function unrotatedCorners(minX: number, maxX: number, minY: number, maxY: number
     [maxX, maxY],
     [minX, maxY],
   ];
-  return pts.map((p) => [p[0] * cos - p[1] * sin, p[0] * sin + p[1] * cos] as XY) as [XY, XY, XY, XY];
+  return pts.map((p) => [p[0] * cos - p[1] * sin, p[0] * sin + p[1] * cos] as XY) as [
+    XY,
+    XY,
+    XY,
+    XY,
+  ];
 }
 
 // Andrew's monotone chain convex hull.
 function convexHull(points: XY[]): XY[] {
   const pts = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   if (pts.length <= 1) return pts;
-  const cross = (o: XY, a: XY, b: XY) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const cross = (o: XY, a: XY, b: XY) =>
+    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
   const lower: XY[] = [];
   for (const p of pts) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2]!, lower[lower.length - 1]!, p) <= 0) lower.pop();
+    while (lower.length >= 2 && cross(lower[lower.length - 2]!, lower[lower.length - 1]!, p) <= 0)
+      lower.pop();
     lower.push(p);
   }
   const upper: XY[] = [];
   for (let i = pts.length - 1; i >= 0; i--) {
     const p = pts[i] as XY;
-    while (upper.length >= 2 && cross(upper[upper.length - 2]!, upper[upper.length - 1]!, p) <= 0) upper.pop();
+    while (upper.length >= 2 && cross(upper[upper.length - 2]!, upper[upper.length - 1]!, p) <= 0)
+      upper.pop();
     upper.push(p);
   }
   upper.pop();

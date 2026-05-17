@@ -4,7 +4,8 @@ import { useEffect, useRef } from 'react';
 import { useMapTools } from '../lib/drawing/useMapTools.js';
 import { useProject } from '../store/projectStore.js';
 
-const ESRI_SAT_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const ESRI_SAT_URL =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 const OSM_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 function makeRasterStyle(tileUrl: string, attribution: string): StyleSpecification {
@@ -57,7 +58,10 @@ export function MapView(): JSX.Element {
       // Silence noisy tile load errors.
       if (e?.error && typeof e.error === 'object' && 'message' in e.error) return;
     });
-    map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-right');
+    map.addControl(
+      new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }),
+      'top-right',
+    );
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
 
     map.on('moveend', () => {

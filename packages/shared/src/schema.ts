@@ -8,6 +8,8 @@
 
 import type { Polygon } from 'geojson';
 
+export type { Polygon } from 'geojson';
+
 export const SCHEMA_VERSION = '1.0' as const;
 export type SchemaVersion = typeof SCHEMA_VERSION;
 

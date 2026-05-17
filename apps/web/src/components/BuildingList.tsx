@@ -17,7 +17,8 @@ export function BuildingList(): JSX.Element {
     <div className="building-list">
       {buildings.map((b) => {
         const selected =
-          (selection.kind === 'building' || selection.kind === 'face') && selection.buildingId === b.id;
+          (selection.kind === 'building' || selection.kind === 'face') &&
+          selection.buildingId === b.id;
         return (
           <div
             key={b.id}

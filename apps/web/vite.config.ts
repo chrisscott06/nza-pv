@@ -1,12 +1,14 @@
-import { defineConfig } from 'vite';
+import { URL, fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
-import { fileURLToPath, URL } from 'node:url';
+import { defineConfig } from 'vite';
 
 export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@nza-pv/shared': fileURLToPath(new URL('../../packages/shared/src/index.ts', import.meta.url)),
+      '@nza-pv/shared': fileURLToPath(
+        new URL('../../packages/shared/src/index.ts', import.meta.url),
+      ),
     },
   },
   server: {
@@ -17,5 +19,6 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
+    exclude: ['**/node_modules/**', '**/dist/**', 'tests/e2e/**'],
   },
 });
