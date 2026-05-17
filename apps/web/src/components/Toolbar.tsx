@@ -1,35 +1,25 @@
 import { type ToolMode, type ViewMode, useProject } from '../store/projectStore.js';
 
+// Editing tools (push-pull, vertex) are surfaced as on-canvas handles when a
+// building is selected — they don't live in the toolbar.
 const TOOLS: Array<{ id: ToolMode['kind']; label: string; glyph: string; hint: string }> = [
   {
     id: 'select',
     label: 'Select',
     glyph: '⌖',
-    hint: 'Click to select buildings or roof faces (V)',
+    hint: 'Click a building to select. Drag the handles to rotate or push-pull.',
   },
   {
     id: 'draw-rect',
     label: 'Rectangle',
     glyph: '▭',
-    hint: 'Click-drag to draw a rectangular building (R)',
+    hint: 'Click-drag to draw a rectangular building',
   },
   {
     id: 'draw-polygon',
     label: 'Polygon',
     glyph: '⬠',
-    hint: 'Click vertices, double-click to close (P)',
-  },
-  {
-    id: 'push-pull',
-    label: 'Push-pull',
-    glyph: '↔',
-    hint: 'Drag an edge to extend/contract a building (E)',
-  },
-  {
-    id: 'vertex',
-    label: 'Vertex',
-    glyph: '◇',
-    hint: 'Drag a vertex to reshape (shift overrides snap)',
+    hint: 'Click vertices, double-click to close',
   },
 ];
 

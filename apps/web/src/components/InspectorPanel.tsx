@@ -1,7 +1,8 @@
-// Inspector panel — contextual on the current selection. Building info on Day 1,
-// roof builder (Days 5–6) and face inspector (Day 7) wired in here.
+// Inspector panel — contextual on the current selection.
 
 import { PANEL_PRESETS, summarisePv } from '@nza-pv/shared';
+import { useState } from 'react';
+import { regenerateFaces } from '../lib/roof/regenerate.js';
 import { selectActiveBuilding, selectActiveFace, useProject } from '../store/projectStore.js';
 import { BulkOpsPanel } from './BulkOpsPanel.js';
 import { RoofBuilder } from './RoofBuilder.js';
@@ -11,11 +12,17 @@ export function InspectorPanel(): JSX.Element {
   const building = useProject(selectActiveBuilding);
   const faceSel = useProject(selectActiveFace);
   const setBuildingHeight = useProject((s) => s.setBuildingHeight);
+  const setFaces = useProject((s) => s.setFaces);
+  const renameBuilding = useProject((s) => s.renameBuilding);
   const removeBuilding = useProject((s) => s.removeBuilding);
+  const select = useProject((s) => s.select);
   const toggleFaceEligibility = useProject((s) => s.toggleFaceEligibility);
   const setFaceCoverage = useProject((s) => s.setFaceCoverage);
   const setFacePanelSize = useProject((s) => s.setFacePanelSize);
   const resetFaceOverrides = useProject((s) => s.resetFaceOverrides);
+
+  const [renaming, setRenaming] = useState(false);
+  const [draftName, setDraftName] = useState('');
 
   if (selection.kind === 'none' || !building) {
     return (
@@ -24,6 +31,15 @@ export function InspectorPanel(): JSX.Element {
         controls.
       </div>
     );
+  }
+
+  // Whenever the height or storey count changes, the roof must follow the new
+  // top-of-wall — so regen the faces with the updated eave.
+  function applyHeight(opts: Parameters<typeof setBuildingHeight>[1]): void {
+    if (!building) return;
+    setBuildingHeight(building.id, opts);
+    const refreshed = useProject.getState().project?.buildings.find((b) => b.id === building.id);
+    if (refreshed) setFaces(building.id, regenerateFaces(refreshed));
   }
 
   if (faceSel && faceSel.buildingId === building.id) {
@@ -86,22 +102,102 @@ export function InspectorPanel(): JSX.Element {
         <ReadOnlyRow label="Panel count" value={`${pv.panel_count}`} />
         <ReadOnlyRow label="Nominal" value={`${pv.nominal_kwp} kWp`} />
 
-        <button
-          type="button"
-          style={{ marginTop: 12, fontSize: 12, color: 'var(--c-text-dim)' }}
-          onClick={() => resetFaceOverrides(building.id, face.id)}
-        >
-          Reset face to defaults
-        </button>
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <button
+            type="button"
+            style={{ fontSize: 12, color: 'var(--c-text-dim)' }}
+            onClick={() => resetFaceOverrides(building.id, face.id)}
+          >
+            Reset face
+          </button>
+          <button
+            type="button"
+            style={{ fontSize: 12, color: 'var(--c-text-dim)', marginLeft: 'auto' }}
+            onClick={() => select({ kind: 'building', buildingId: building.id })}
+            title="Back to building-level controls"
+          >
+            ← Back to building
+          </button>
+        </div>
       </div>
     );
   }
 
+  function startRename(): void {
+    if (!building) return;
+    setDraftName(building.name);
+    setRenaming(true);
+  }
+
+  function commitRename(): void {
+    if (!building) return;
+    const v = draftName.trim();
+    if (v && v !== building.name) renameBuilding(building.id, v);
+    setRenaming(false);
+  }
+
   return (
     <div>
-      <div style={{ marginBottom: 8 }}>
-        <strong>{building.name}</strong>
+      {/* Title row with discoverable rename + Done */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+        {renaming ? (
+          <input
+            autoFocus
+            className="name-input"
+            value={draftName}
+            onChange={(e) => setDraftName(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitRename();
+              if (e.key === 'Escape') setRenaming(false);
+            }}
+            style={{
+              fontSize: 14,
+              fontWeight: 600,
+              flex: 1,
+              background: 'var(--c-panel-2)',
+              border: '1px solid var(--c-accent)',
+              borderRadius: 4,
+              padding: '4px 6px',
+              color: 'var(--c-text)',
+            }}
+          />
+        ) : (
+          <>
+            <strong style={{ flex: 1 }}>{building.name}</strong>
+            <button
+              type="button"
+              onClick={startRename}
+              title="Rename building"
+              style={{
+                padding: '2px 6px',
+                border: '1px solid var(--c-border)',
+                borderRadius: 4,
+                fontSize: 11,
+                color: 'var(--c-text-dim)',
+              }}
+            >
+              Rename
+            </button>
+          </>
+        )}
+        <button
+          type="button"
+          onClick={() => select({ kind: 'none' })}
+          title="Finish editing this building (Esc)"
+          style={{
+            padding: '2px 8px',
+            border: '1px solid var(--c-accent-deep)',
+            background: 'var(--c-accent-deep)',
+            color: '#fff',
+            borderRadius: 4,
+            fontSize: 11,
+          }}
+        >
+          Done
+        </button>
       </div>
+
       <div className="field-row">
         <label>Storeys</label>
         <input
@@ -109,9 +205,7 @@ export function InspectorPanel(): JSX.Element {
           min={1}
           max={20}
           value={building.storeys}
-          onChange={(e) =>
-            setBuildingHeight(building.id, { storeys: Math.max(1, Number(e.target.value)) })
-          }
+          onChange={(e) => applyHeight({ storeys: Math.max(1, Number(e.target.value)) })}
         />
       </div>
       <div className="field-row">
@@ -122,9 +216,7 @@ export function InspectorPanel(): JSX.Element {
           min={2}
           max={6}
           value={building.storey_height_m}
-          onChange={(e) =>
-            setBuildingHeight(building.id, { storey_height_m: Number(e.target.value) })
-          }
+          onChange={(e) => applyHeight({ storey_height_m: Number(e.target.value) })}
         />
       </div>
       <div className="field-row">
@@ -134,9 +226,7 @@ export function InspectorPanel(): JSX.Element {
           step={0.1}
           min={2}
           value={building.eave_height_m}
-          onChange={(e) =>
-            setBuildingHeight(building.id, { eave_height_m: Number(e.target.value) })
-          }
+          onChange={(e) => applyHeight({ eave_height_m: Number(e.target.value) })}
         />
       </div>
 

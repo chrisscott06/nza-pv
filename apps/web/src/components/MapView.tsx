@@ -75,9 +75,11 @@ export function MapView(): JSX.Element {
       });
     });
 
-    map.on('load', () => {
-      mapRef.current = map;
-    });
+    // The Map instance is usable for markers, popups, and event listeners as
+    // soon as it's constructed — `load` only matters for `addSource` /
+    // `addLayer`. Expose the ref straight away so edit handles can mount even
+    // if a slow tile server delays `load`.
+    mapRef.current = map;
 
     return () => {
       mapRef.current = null;

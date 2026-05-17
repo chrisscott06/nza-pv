@@ -146,30 +146,36 @@ function BuildingMesh({
   onPickBuilding: () => void;
   onPickFace: (faceId: string) => void;
 }): JSX.Element {
+  // Deps are restricted to *primitives that change geometry*. Immer keeps
+  // unchanged subtrees identity-stable, so `building.footprint` stays the same
+  // reference when only `building.faces` is touched — that prevents an
+  // expensive wallGeom rebuild on every selection change.
+  const footprint = building.footprint;
+  const eave = building.eave_height_m;
+
   const centroid = useMemo(
-    () => lngLatToMeters(polygonCentroidLngLat(building.footprint), anchor),
-    [building, anchor],
+    () => lngLatToMeters(polygonCentroidLngLat(footprint), anchor),
+    [footprint, anchor],
   );
   const ring = useMemo(() => {
-    const r = polygonRingToMeters(building.footprint, anchor);
+    const r = polygonRingToMeters(footprint, anchor);
     return r.map((p) => [p[0] - centroid[0], p[1] - centroid[1]] as [number, number]);
-  }, [building, anchor, centroid]);
+  }, [footprint, anchor, centroid]);
 
-  const wallGeom = useMemo(() => {
+  const wallGeom = useDisposableGeometry(() => {
     const shape = new THREE.Shape();
     ring.forEach((p, i) => {
       if (i === 0) shape.moveTo(p[0], p[1]);
       else shape.lineTo(p[0], p[1]);
     });
     shape.closePath();
-    const g = new THREE.ExtrudeGeometry(shape, {
-      depth: building.eave_height_m,
-      bevelEnabled: false,
-    });
+    const g = new THREE.ExtrudeGeometry(shape, { depth: eave, bevelEnabled: false });
     g.rotateX(-Math.PI / 2);
     g.computeVertexNormals();
     return g;
-  }, [ring, building.eave_height_m]);
+  }, [ring, eave]);
+
+  if (!wallGeom) return <></>;
 
   return (
     <group
@@ -198,6 +204,37 @@ function BuildingMesh({
   );
 }
 
+/** Builds a BufferGeometry that disposes itself when deps change or the
+ *  component unmounts. Returning null when the build throws keeps the scene
+ *  alive instead of unmounting the whole Canvas on a single bad face. */
+function useDisposableGeometry(
+  build: () => THREE.BufferGeometry | null,
+  deps: React.DependencyList,
+): THREE.BufferGeometry | null {
+  const ref = useRef<THREE.BufferGeometry | null>(null);
+  const geom = useMemo(() => {
+    if (ref.current) ref.current.dispose();
+    try {
+      const g = build();
+      ref.current = g;
+      return g;
+    } catch (err) {
+      console.error('[SceneView] geometry build failed', err);
+      ref.current = null;
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  useEffect(
+    () => () => {
+      if (ref.current) ref.current.dispose();
+      ref.current = null;
+    },
+    [],
+  );
+  return geom;
+}
+
 function FaceMesh({
   face,
   anchor,
@@ -215,10 +252,12 @@ function FaceMesh({
   buildingSelected: boolean;
   onClick: () => void;
 }): JSX.Element | null {
-  const geom = useMemo(() => {
-    const ring = face.geometry.coordinates[0] ?? [];
+  // Depend on `face.geometry` (a stable subtree under immer) rather than the
+  // whole `face` so eligibility toggles don't rebuild the GPU mesh.
+  const faceGeom = face.geometry;
+  const geom = useDisposableGeometry(() => {
+    const ring = faceGeom.coordinates[0] ?? [];
     if (ring.length < 3) return null;
-    // Convert lng/lat (+ z) to local metres relative to building centroid.
     const verts: THREE.Vector3[] = [];
     for (let i = 0; i < ring.length - 1; i++) {
       const c = ring[i] as unknown as [number, number, number];
@@ -226,7 +265,7 @@ function FaceMesh({
       verts.push(new THREE.Vector3(xy[0] - centroid[0], c[2] ?? 0, -(xy[1] - centroid[1])));
     }
     return buildPolygonGeometry(verts);
-  }, [face, anchor, centroid]);
+  }, [faceGeom, anchor, centroid]);
   if (!geom) return null;
   const baseColor = face.role === 'sawtooth_glazing' ? 0xbfd6df : ROOF_COLOR;
   const color = highlight

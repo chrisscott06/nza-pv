@@ -14,6 +14,12 @@ export type BuildingFeature = Feature<
 >;
 
 export function installLayers(map: maplibregl.Map): void {
+  // `addSource` throws if the style isn't loaded yet. Defer the whole install
+  // until then, so callers don't need to know about load timing.
+  if (!map.isStyleLoaded()) {
+    map.once('load', () => installLayers(map));
+    return;
+  }
   if (map.getSource(BUILDINGS_SRC)) return;
   map.addSource(BUILDINGS_SRC, {
     type: 'geojson',
@@ -62,6 +68,10 @@ export function updateBuildings(
   buildings: Building[],
   selectedIds: Set<string>,
 ): void {
+  if (!map.isStyleLoaded()) {
+    map.once('load', () => updateBuildings(map, buildings, selectedIds));
+    return;
+  }
   const src = map.getSource(BUILDINGS_SRC) as maplibregl.GeoJSONSource | undefined;
   if (!src) return;
   const fc: FeatureCollection<Polygon> = {

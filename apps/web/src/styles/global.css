@@ -636,6 +636,45 @@ a:hover {
   outline: none;
 }
 
+/* Edit handles (rectangle push-pull + rotation) */
+.edit-handle {
+  pointer-events: auto;
+  border: 2px solid #0c1c14;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  cursor: grab;
+  transition: transform 80ms;
+}
+.edit-handle:hover {
+  transform: scale(1.25);
+}
+.edit-handle:active {
+  cursor: grabbing;
+}
+.edit-handle.edge {
+  width: 16px;
+  height: 16px;
+  background: var(--c-accent);
+  border-radius: 3px;
+}
+.edit-handle.rotate {
+  width: 16px;
+  height: 16px;
+  background: var(--c-warning);
+  border-radius: 50%;
+  position: relative;
+}
+.edit-handle.rotate::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 2px;
+  height: 14px;
+  background: var(--c-warning);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
 /* 3D scene overlay */
 .scene-root {
   position: absolute;

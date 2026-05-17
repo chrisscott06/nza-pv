@@ -8,6 +8,7 @@ import { useProject } from '../../store/projectStore.js';
 import { toast } from '../../store/toasts.js';
 import { defaultRoofForStyle } from '../roof/presets.js';
 import { regenerateFaces } from '../roof/regenerate.js';
+import { mountEditHandles } from './editHandles.js';
 import {
   type LngLat,
   isSelfIntersecting,
@@ -44,6 +45,33 @@ export function useMapTools(mapRef: React.MutableRefObject<maplibregl.Map | null
     if (selection.kind === 'multi') selection.buildingIds.forEach((id) => selectedIds.add(id));
     updateBuildings(map, buildings, selectedIds);
   }, [mapRef, buildings, selection]);
+
+  // Mount edit handles when a single building is selected. Re-mounts when the
+  // selected id changes, not on every footprint tick (markers drive the
+  // footprint updates during drag, so they own the in-flight state).
+  const selectedId =
+    selection.kind === 'building' || selection.kind === 'face' ? selection.buildingId : null;
+  useEffect(() => {
+    if (!selectedId) return;
+    let teardown: (() => void) | null = null;
+    let cancelled = false;
+    const attempt = (): void => {
+      if (cancelled) return;
+      const map = mapRef.current;
+      if (!map) {
+        window.setTimeout(attempt, 50);
+        return;
+      }
+      const target = useProject.getState().project?.buildings.find((b) => b.id === selectedId);
+      if (!target) return;
+      teardown = mountEditHandles(map, target);
+    };
+    attempt();
+    return () => {
+      cancelled = true;
+      teardown?.();
+    };
+  }, [mapRef, selectedId]);
 
   // Bind interaction handlers (once). We poll briefly because the map ref is
   // populated inside MapView's `load` callback, not synchronously on mount.
