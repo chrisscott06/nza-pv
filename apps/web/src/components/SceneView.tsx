@@ -12,6 +12,7 @@ import { OrbitControls } from '@react-three/drei';
 import { Canvas, useThree } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import { useShallow } from 'zustand/shallow';
 import { selectActiveBuilding, selectActiveFace, useProject } from '../store/projectStore.js';
 
 const WALL_COLOR = 0xf0ebe5;
@@ -24,7 +25,9 @@ export function SceneView(): JSX.Element {
   const buildings = project?.buildings ?? [];
   const select = useProject((s) => s.select);
   const activeBuilding = useProject(selectActiveBuilding);
-  const activeFaceSel = useProject(selectActiveFace);
+  // `useShallow` — see InspectorPanel for the matching note. Without it,
+  // clicking a roof face triggers a maximum-update-depth render loop.
+  const activeFaceSel = useProject(useShallow(selectActiveFace));
 
   const anchor = useMemo<[number, number]>(() => {
     if (!buildings.length) return [-2.3013, 51.9213];

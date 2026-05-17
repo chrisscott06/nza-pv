@@ -2,6 +2,7 @@
 
 import { PANEL_PRESETS, summarisePv } from '@nza-pv/shared';
 import { useState } from 'react';
+import { useShallow } from 'zustand/shallow';
 import { regenerateFaces } from '../lib/roof/regenerate.js';
 import { selectActiveBuilding, selectActiveFace, useProject } from '../store/projectStore.js';
 import { BulkOpsPanel } from './BulkOpsPanel.js';
@@ -10,7 +11,12 @@ import { RoofBuilder } from './RoofBuilder.js';
 export function InspectorPanel(): JSX.Element {
   const selection = useProject((s) => s.selection);
   const building = useProject(selectActiveBuilding);
-  const faceSel = useProject(selectActiveFace);
+  // `selectActiveFace` returns a fresh `{ face, buildingId }` object on every
+  // call, which trips Zustand v5's snapshot stability check and triggers an
+  // infinite re-render loop. Wrapping with `useShallow` compares the object's
+  // contents instead of its identity so the snapshot is stable when face/id
+  // haven't changed.
+  const faceSel = useProject(useShallow(selectActiveFace));
   const setBuildingHeight = useProject((s) => s.setBuildingHeight);
   const setFaces = useProject((s) => s.setFaces);
   const renameBuilding = useProject((s) => s.renameBuilding);
