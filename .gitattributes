@@ -1,0 +1,9 @@
+# Force LF in the repo for source files so Windows checkouts don't churn.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.woff binary
+*.woff2 binary
