@@ -69,6 +69,16 @@ function makePivotEl(): HTMLDivElement {
   return el;
 }
 
+function makeStretchEl(): HTMLDivElement {
+  const el = document.createElement('div');
+  el.className = 'edit-handle stretch';
+  return el;
+}
+
+/** How far (in metres) the rotation handle sits outside the corner so that
+ *  the stretch handle ON the corner can be grabbed cleanly. */
+const ROTATE_OFFSET_M = 1.6;
+
 /** Mount all edit handles for `building`. Returns a teardown function. */
 export function mountEditHandles(map: maplibregl.Map, building: Building): () => void {
   const ring = (building.footprint.coordinates[0] ?? []) as LngLat[];
@@ -83,7 +93,9 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
   const anchor = polygonCentroidLngLat(building.footprint);
 
   // Track which marker (if any) the user is currently dragging so syncs skip it.
-  let activeIndex: { kind: 'edge' | 'corner' | 'move' | 'pivot'; index: number } | null = null;
+  let activeIndex:
+    | { kind: 'edge' | 'corner' | 'stretch' | 'move' | 'pivot'; index: number }
+    | null = null;
   // Pivot point in metres relative to `anchor`. Defaults to centroid; the user
   // can drag it anywhere (snapping to centroid / corners / midpoints). All
   // rotations happen around this point.
@@ -124,7 +136,40 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
     });
   }
 
-  // ---- Corner markers (rotation) -------------------------------------------
+  // ---- Stretch markers (corners, resize) -----------------------------------
+  const stretchMarkers: maplibregl.Marker[] = [];
+  let stretchInitialVerts: XY[] = [];
+  for (let i = 0; i < 4; i++) {
+    const el = makeStretchEl();
+    const marker = new maplibregl.Marker({ element: el, draggable: true, anchor: 'center' })
+      .setLngLat([0, 0])
+      .addTo(map);
+    stretchMarkers.push(marker);
+
+    marker.on('dragstart', () => {
+      activeIndex = { kind: 'stretch', index: i };
+      map.getCanvas().style.cursor = 'nwse-resize';
+      const b = currentBuilding(building.id);
+      if (!b) return;
+      stretchInitialVerts = polygonRingToMeters(b.footprint, anchor);
+    });
+    marker.on('drag', () => {
+      const here = marker.getLngLat();
+      const hereM = lngLatToMeters([here.lng, here.lat], anchor);
+      stretchCorner(building.id, anchor, stretchInitialVerts, i, hereM);
+      commitFaceRegen(building.id);
+      syncMarkers();
+    });
+    marker.on('dragend', () => {
+      snapBuildingToRectangle(building.id, anchor);
+      commitFaceRegen(building.id);
+      activeIndex = null;
+      map.getCanvas().style.cursor = '';
+      syncMarkers();
+    });
+  }
+
+  // ---- Corner rotation markers (offset OUTSIDE the corner) ----------------
   const cornerMarkers: maplibregl.Marker[] = [];
   let initialVerts: XY[] = [];
   let initialAngle = 0;
@@ -260,11 +305,25 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
     if (!b) return;
     const verts = polygonRingToMeters(b.footprint, anchor);
     if (verts.length < 4) return;
+    const cx = avg(verts.map((v) => v[0]));
+    const cy = avg(verts.map((v) => v[1]));
     for (let i = 0; i < 4; i++) {
-      if (!(activeIndex?.kind === 'corner' && activeIndex.index === i)) {
-        cornerMarkers[i]?.setLngLat(metersToLngLat(verts[i]!, anchor));
+      const v = verts[i]!;
+      // Stretch marker sits on the corner itself.
+      if (!(activeIndex?.kind === 'stretch' && activeIndex.index === i)) {
+        stretchMarkers[i]?.setLngLat(metersToLngLat(v, anchor));
       }
-      const a = verts[i]!;
+      // Rotation marker sits ROTATE_OFFSET_M outside the corner along the
+      // outward diagonal (centroid → corner direction). Lets the user grab
+      // the stretch handle directly on the corner without overlap.
+      if (!(activeIndex?.kind === 'corner' && activeIndex.index === i)) {
+        const dx = v[0] - cx;
+        const dy = v[1] - cy;
+        const len = Math.hypot(dx, dy) || 1;
+        const offset: XY = [v[0] + (dx / len) * ROTATE_OFFSET_M, v[1] + (dy / len) * ROTATE_OFFSET_M];
+        cornerMarkers[i]?.setLngLat(metersToLngLat(offset, anchor));
+      }
+      const a = v;
       const c = verts[(i + 1) % 4]!;
       const mid: XY = [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2];
       if (!(activeIndex?.kind === 'edge' && activeIndex.index === i)) {
@@ -272,8 +331,6 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
       }
     }
     if (activeIndex?.kind !== 'move') {
-      const cx = avg(verts.map((v) => v[0]));
-      const cy = avg(verts.map((v) => v[1]));
       moveMarker.setLngLat(metersToLngLat([cx, cy], anchor));
     }
     if (activeIndex?.kind !== 'pivot') {
@@ -286,6 +343,7 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
   return () => {
     for (const m of edgeMarkers) m.remove();
     for (const m of cornerMarkers) m.remove();
+    for (const m of stretchMarkers) m.remove();
     moveMarker.remove();
     pivotMarker.remove();
   };
@@ -335,6 +393,52 @@ function pushPullEdge(
   );
   if (newWidth < 1) return;
   setFootprintFromMetres(buildingId, moved, anchor);
+}
+
+/** Resize the rectangle by dragging one corner, keeping the diagonally-
+ *  opposite corner fixed and the rectangle's orientation unchanged. */
+function stretchCorner(
+  buildingId: string,
+  anchor: LngLat,
+  initialVertsM: XY[],
+  cornerIndex: number,
+  newCornerM: XY,
+): void {
+  if (initialVertsM.length < 4) return;
+  const oppIdx = (cornerIndex + 2) % 4;
+  const opp = initialVertsM[oppIdx]!;
+  // Use the two edges meeting at the opposite corner as the rectangle's local
+  // axes. They stay fixed in direction; only their lengths change.
+  const aRaw: XY = [
+    initialVertsM[(oppIdx + 1) % 4]![0] - opp[0],
+    initialVertsM[(oppIdx + 1) % 4]![1] - opp[1],
+  ];
+  const bRaw: XY = [
+    initialVertsM[(oppIdx + 3) % 4]![0] - opp[0],
+    initialVertsM[(oppIdx + 3) % 4]![1] - opp[1],
+  ];
+  const aLen = Math.hypot(aRaw[0], aRaw[1]);
+  const bLen = Math.hypot(bRaw[0], bRaw[1]);
+  if (aLen < 0.01 || bLen < 0.01) return;
+  const aAxis: XY = [aRaw[0] / aLen, aRaw[1] / aLen];
+  const bAxis: XY = [bRaw[0] / bLen, bRaw[1] / bLen];
+  // Project drag offset from the opposite corner onto the two axes.
+  const dx = newCornerM[0] - opp[0];
+  const dy = newCornerM[1] - opp[1];
+  const tA = dx * aAxis[0] + dy * aAxis[1];
+  const tB = dx * bAxis[0] + dy * bAxis[1];
+  // Reject a flip / collapse — keep the rectangle at least 1m on each side.
+  if (Math.abs(tA) < 1 || Math.abs(tB) < 1) return;
+  // Reconstruct corners in their original CCW slot order.
+  const corners: XY[] = new Array(4) as XY[];
+  corners[oppIdx] = opp;
+  corners[(oppIdx + 1) % 4] = [opp[0] + tA * aAxis[0], opp[1] + tA * aAxis[1]];
+  corners[(oppIdx + 2) % 4] = [
+    opp[0] + tA * aAxis[0] + tB * bAxis[0],
+    opp[1] + tA * aAxis[1] + tB * bAxis[1],
+  ];
+  corners[(oppIdx + 3) % 4] = [opp[0] + tB * bAxis[0], opp[1] + tB * bAxis[1]];
+  setFootprintFromMetres(buildingId, corners, anchor);
 }
 
 function rotateBuildingAround(
