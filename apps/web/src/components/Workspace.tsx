@@ -55,9 +55,23 @@ export function Workspace(): JSX.Element {
 
   return (
     <div className="main">
-      <ErrorBoundary label={view === '3d' ? '3D scene' : 'Map'} key={view}>
-        {view === '3d' ? <SceneView /> : <MapView />}
-      </ErrorBoundary>
+      {/* Map is mounted in both 2D and 3D so the satellite imagery acts as a
+          ground texture under the 3D buildings. In 3D mode its pointer events
+          are off — the 3D canvas owns interactions. */}
+      <div
+        className="map-underlay"
+        style={{ pointerEvents: view === '2d' ? 'auto' : 'none' }}
+        aria-hidden={view !== '2d'}
+      >
+        <ErrorBoundary label="Map">
+          <MapView />
+        </ErrorBoundary>
+      </div>
+      {view === '3d' && (
+        <ErrorBoundary label="3D scene">
+          <SceneView />
+        </ErrorBoundary>
+      )}
       <div className="map-overlays">
         <Toolbar />
         <div className="side-panel">

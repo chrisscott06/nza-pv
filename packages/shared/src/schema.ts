@@ -121,12 +121,18 @@ export type RoofSawtooth = {
   pitch_count: number;
   pitch_deg: number;
   glazing_strip_width_m: number;
+  /** 'longest' (default) — pitches run across the building's long axis;
+   *  'shortest' — pitches run across the short axis (rotated 90°). */
+  orientation?: 'longest' | 'shortest';
 };
 
 export type RoofButterfly = {
   style: 'butterfly';
   pitch_deg: number;
   valley_depth_m: number;
+  /** 'longest' (default) — valley runs along the building's long axis;
+   *  'shortest' — valley runs along the short axis (rotated 90°). */
+  orientation?: 'longest' | 'shortest';
 };
 
 export type RoofPyramid = { style: 'pyramid'; pitch_deg: number };

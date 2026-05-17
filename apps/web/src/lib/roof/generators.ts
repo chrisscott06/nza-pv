@@ -47,9 +47,15 @@ export function generateRoof(roof: Roof, input: GeneratorInput): LocalFace[] {
     case 'saltbox':
       return saltbox(input, roof.front_pitch_deg, roof.back_pitch_deg, roof.ridge_offset_pct);
     case 'sawtooth':
-      return sawtooth(input, roof.pitch_count, roof.pitch_deg, roof.glazing_strip_width_m);
+      return withOrientation(
+        sawtooth(input, roof.pitch_count, roof.pitch_deg, roof.glazing_strip_width_m),
+        roof.orientation,
+      );
     case 'butterfly':
-      return butterfly(input, roof.pitch_deg, roof.valley_depth_m);
+      return withOrientation(
+        butterfly(input, roof.pitch_deg, roof.valley_depth_m),
+        roof.orientation,
+      );
     case 'pyramid':
       return pyramid(input, roof.pitch_deg);
     case 'cross_gabled':
@@ -278,6 +284,20 @@ function rotateZ(p: V3, rad: number): V3 {
   const c = Math.cos(rad);
   const s = Math.sin(rad);
   return [p[0] * c - p[1] * s, p[0] * s + p[1] * c, p[2]];
+}
+
+/** Rotate every face 90° around the local Z axis if `orientation === 'shortest'`.
+ *  Used by butterfly and sawtooth so the user can flip the dominant direction
+ *  with the same Rotate button as the ridge-axis roofs. */
+function withOrientation(
+  faces: LocalFace[],
+  orientation: 'longest' | 'shortest' | undefined,
+): LocalFace[] {
+  if (orientation !== 'shortest') return faces;
+  return faces.map((f) => ({
+    role: f.role,
+    ring: f.ring.map((p) => rotateZ(p, Math.PI / 2)),
+  }));
 }
 
 function hip(input: GeneratorInput, pitch: number): LocalFace[] {

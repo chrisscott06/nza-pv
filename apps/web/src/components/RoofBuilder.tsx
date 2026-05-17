@@ -185,6 +185,7 @@ function RoofParams({ roof, onChange }: { roof: Roof; onChange: (r: Roof) => voi
             value={roof.glazing_strip_width_m}
             onChange={(v) => onChange({ ...roof, glazing_strip_width_m: v })}
           />
+          <RotateOrientationRow roof={roof} onChange={onChange} />
         </>
       );
     default:
@@ -284,6 +285,26 @@ function RotateOrientationRow({
           const next = seq[(idx + 1) % 4]!;
           onChange({ ...roof, high_side: next });
         }}
+      />
+    );
+  }
+  if (roof.style === 'butterfly' || roof.style === 'sawtooth') {
+    const current = roof.orientation ?? 'longest';
+    const next = current === 'shortest' ? 'longest' : 'shortest';
+    const hint =
+      roof.style === 'butterfly'
+        ? current === 'shortest'
+          ? 'Valley along short edge'
+          : 'Valley along long edge'
+        : current === 'shortest'
+          ? 'Pitches across short edge'
+          : 'Pitches across long edge';
+    return (
+      <ButtonRow
+        label="Orientation"
+        hint={hint}
+        cta="Rotate 90°"
+        onClick={() => onChange({ ...roof, orientation: next })}
       />
     );
   }

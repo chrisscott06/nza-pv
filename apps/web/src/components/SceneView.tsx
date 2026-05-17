@@ -9,8 +9,8 @@ import {
   polygonRingToMeters,
 } from '@nza-pv/shared';
 import { OrbitControls } from '@react-three/drei';
-import { Canvas, useThree } from '@react-three/fiber';
-import { useEffect, useMemo, useRef } from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useShallow } from 'zustand/shallow';
 import { selectActiveBuilding, selectActiveFace, useProject } from '../store/projectStore.js';
@@ -34,12 +34,17 @@ export function SceneView(): JSX.Element {
     return polygonCentroidLngLat(buildings[0]!.footprint);
   }, [buildings]);
 
+  const [bearingDeg, setBearingDeg] = useState(0);
+  const controlsRef = useRef<unknown>(null);
+
   return (
     <div className="scene-root">
-      <Canvas shadows camera={{ position: [50, 50, 70], fov: 45, near: 0.1, far: 5000 }}>
-        <color attach="background" args={['#1b242b']} />
-        <fog attach="fog" args={['#1b242b', 200, 600]} />
-        <hemisphereLight args={[0xdbe7f0, 0x1f261c, 0.55]} />
+      <Canvas
+        shadows
+        gl={{ alpha: true, antialias: true }}
+        camera={{ position: [50, 50, 70], fov: 45, near: 0.1, far: 5000 }}
+      >
+        <hemisphereLight args={[0xdbe7f0, 0x1f261c, 0.6]} />
         <directionalLight
           position={[35, 80, 35]}
           intensity={1.05}
@@ -69,28 +74,92 @@ export function SceneView(): JSX.Element {
         ))}
         <CameraFitter buildings={buildings} anchor={anchor} />
         <OrbitControls
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ref={controlsRef as any}
           makeDefault
           target={[0, 5, 0]}
           maxPolarAngle={Math.PI / 2 - 0.05}
           enableDamping
           dampingFactor={0.08}
         />
+        <BearingProbe onChange={setBearingDeg} />
       </Canvas>
       {buildings.length === 0 && (
         <div className="view-only-3d-msg">
           Draw a building in 2D first — it'll appear here when you switch views.
         </div>
       )}
+      <SceneCompass
+        bearingDeg={bearingDeg}
+        onReset={() => {
+          const c = controlsRef.current as
+            | { setAzimuthalAngle: (a: number) => void; update: () => void }
+            | null;
+          if (c?.setAzimuthalAngle) {
+            c.setAzimuthalAngle(0);
+            c.update();
+          }
+        }}
+      />
     </div>
   );
 }
 
+/** Receives shadows as a soft dark overlay so the satellite map can show
+ *  through everywhere else. Without `shadowMaterial` the plane would render
+ *  as a solid colour and hide the underlay. */
 function Ground(): JSX.Element {
   return (
     <mesh receiveShadow position={[0, -0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
       <planeGeometry args={[2000, 2000]} />
-      <meshStandardMaterial color={0x2a3239} roughness={1} />
+      <shadowMaterial opacity={0.45} />
     </mesh>
+  );
+}
+
+/** Pushes the camera's current azimuth (in degrees, CCW from world +Z) up to
+ *  React so the on-screen compass can rotate with it. */
+function BearingProbe({ onChange }: { onChange: (deg: number) => void }): null {
+  const camera = useThree((s) => s.camera);
+  const target = useMemo(() => ({ last: 0 }), []);
+  useFrame(() => {
+    // Math angle CCW from +X of the projection of the camera-look vector onto
+    // the XZ plane. We want a compass bearing (CW from north), which is the
+    // direction the camera is *facing*. In our world, +Z is south (we set
+    // building positions at -y world ↔ -z three), so:
+    const dx = -camera.position.x;
+    const dz = -camera.position.z;
+    const bearing = ((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360;
+    if (Math.abs(bearing - target.last) > 0.5) {
+      target.last = bearing;
+      onChange(bearing);
+    }
+  });
+  return null;
+}
+
+/** Compass widget in the bottom-left corner of the 3D scene. Rotates with the
+ *  current camera bearing and resets to north on click. */
+function SceneCompass({
+  bearingDeg,
+  onReset,
+}: { bearingDeg: number; onReset: () => void }): JSX.Element {
+  return (
+    <button
+      type="button"
+      className="scene-compass"
+      onClick={onReset}
+      title="Reset view to north"
+      aria-label="Reset view to north"
+    >
+      <div className="dial" style={{ transform: `rotate(${-bearingDeg}deg)` }}>
+        <span className="n">N</span>
+        <span className="e">E</span>
+        <span className="s">S</span>
+        <span className="w">W</span>
+        <span className="needle" />
+      </div>
+    </button>
   );
 }
 
