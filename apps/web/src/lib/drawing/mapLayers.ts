@@ -40,7 +40,7 @@ export function installLayers(map: maplibregl.Map): void {
     source: BUILDINGS_SRC,
     paint: {
       'fill-color': ['case', ['boolean', ['get', 'selected'], false], '#fff1cf', '#ff5d57'],
-      'fill-opacity': ['case', ['boolean', ['get', 'selected'], false], 0.5, 0.32],
+      'fill-opacity': ['case', ['boolean', ['get', 'selected'], false], 0.55, 0.42],
     },
   });
   map.addLayer({
@@ -48,8 +48,8 @@ export function installLayers(map: maplibregl.Map): void {
     type: 'line',
     source: BUILDINGS_SRC,
     paint: {
-      'line-color': ['case', ['boolean', ['get', 'selected'], false], '#ffeb3b', '#ff5d57'],
-      'line-width': ['case', ['boolean', ['get', 'selected'], false], 3.5, 2.2],
+      'line-color': ['case', ['boolean', ['get', 'selected'], false], '#ffeb3b', '#ff3d35'],
+      'line-width': ['case', ['boolean', ['get', 'selected'], false], 4, 3],
     },
   });
 

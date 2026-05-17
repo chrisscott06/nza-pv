@@ -1,6 +1,7 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import maplibregl, { type StyleSpecification } from 'maplibre-gl';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { installLayers, updateBuildings } from '../lib/drawing/mapLayers.js';
 import { useMapTools } from '../lib/drawing/useMapTools.js';
 import { useProject } from '../store/projectStore.js';
 
@@ -33,6 +34,10 @@ export function MapView(): JSX.Element {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const initialView = useProject((s) => s.project?.view?.map ?? null);
   const setCamera = useProject((s) => s.setCamera);
+  // Used to re-fire useMapTools' building sync once the map style has actually
+  // finished loading — without this, a fresh map mount can race the project
+  // load and the initial buildings render with empty source data.
+  const [, setStyleLoadedTick] = useState(0);
 
   useEffect(() => {
     if (!container.current) return;
@@ -96,6 +101,27 @@ export function MapView(): JSX.Element {
     // `addLayer`. Expose the ref straight away so edit handles can mount even
     // if a slow tile server delays `load`.
     mapRef.current = map;
+
+    // Install the buildings/draft layers and push the *current* buildings from
+    // the store as soon as the style is ready. This guarantees the polygons
+    // appear on first paint even if `useMapTools`' deferred-once-load
+    // listeners fired with stale `[]` data.
+    function onStyleReady(): void {
+      installLayers(map);
+      const project = useProject.getState().project;
+      const buildings = project?.buildings ?? [];
+      const sel = useProject.getState().selection;
+      const selectedIds = new Set<string>();
+      if (sel.kind === 'building' || sel.kind === 'face') selectedIds.add(sel.buildingId);
+      if (sel.kind === 'multi') sel.buildingIds.forEach((id) => selectedIds.add(id));
+      updateBuildings(map, buildings, selectedIds);
+      // Bump local state to force useMapTools' effect to re-evaluate now that
+      // the style is loaded — its own deferred listeners may have closed over
+      // an out-of-date `buildings` array.
+      setStyleLoadedTick((n) => n + 1);
+    }
+    if (map.isStyleLoaded()) onStyleReady();
+    else map.once('load', onStyleReady);
 
     return () => {
       mapRef.current = null;
