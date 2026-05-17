@@ -77,7 +77,11 @@ function makeStretchEl(): HTMLDivElement {
 
 /** How far (in metres) the rotation handle sits outside the corner so that
  *  the stretch handle ON the corner can be grabbed cleanly. */
-const ROTATE_OFFSET_M = 1.6;
+const ROTATE_OFFSET_M = 4.5;
+/** Additional pixel offset stacked on top of the metres offset so the
+ *  rotation handle stays clear of the corner even at low zoom (where 4.5m
+ *  is only a handful of pixels). */
+const ROTATE_OFFSET_PX = 18;
 
 /** Mount all edit handles for `building`. Returns a teardown function. */
 export function mountEditHandles(map: maplibregl.Map, building: Building): () => void {
@@ -314,14 +318,20 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
         stretchMarkers[i]?.setLngLat(metersToLngLat(v, anchor));
       }
       // Rotation marker sits ROTATE_OFFSET_M outside the corner along the
-      // outward diagonal (centroid → corner direction). Lets the user grab
-      // the stretch handle directly on the corner without overlap.
+      // outward diagonal (centroid → corner direction), plus an additional
+      // fixed-pixel offset so it never overlaps the stretch handle even when
+      // the map is zoomed out far enough that 4.5m is only a few pixels.
       if (!(activeIndex?.kind === 'corner' && activeIndex.index === i)) {
         const dx = v[0] - cx;
         const dy = v[1] - cy;
         const len = Math.hypot(dx, dy) || 1;
-        const offset: XY = [v[0] + (dx / len) * ROTATE_OFFSET_M, v[1] + (dy / len) * ROTATE_OFFSET_M];
-        cornerMarkers[i]?.setLngLat(metersToLngLat(offset, anchor));
+        const nx = dx / len;
+        const ny = dy / len;
+        const offsetM: XY = [v[0] + nx * ROTATE_OFFSET_M, v[1] + ny * ROTATE_OFFSET_M];
+        cornerMarkers[i]?.setLngLat(metersToLngLat(offsetM, anchor));
+        // ny is +metres-north; in screen coordinates +Y is *down*, so the
+        // pixel offset's Y component flips sign.
+        cornerMarkers[i]?.setOffset([nx * ROTATE_OFFSET_PX, -ny * ROTATE_OFFSET_PX]);
       }
       const a = v;
       const c = verts[(i + 1) % 4]!;

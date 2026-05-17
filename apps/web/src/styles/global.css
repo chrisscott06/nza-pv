@@ -671,17 +671,26 @@ a:hover {
 .edit-handle.corner {
   width: 22px;
   height: 22px;
-  background: var(--c-warning);
-  border-radius: 4px;
+  background: rgba(227, 185, 90, 0.85);
+  border: 1.5px solid rgba(0, 0, 0, 0.55);
+  border-radius: 50%;
   color: #2b1d05;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: grab;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  opacity: 0.7;
+  transition: opacity 120ms, transform 120ms, background 120ms;
+}
+.edit-handle.corner:hover {
+  opacity: 1;
+  background: var(--c-warning);
+  transform: scale(1.18);
 }
 .edit-handle.corner svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   pointer-events: none;
 }
 

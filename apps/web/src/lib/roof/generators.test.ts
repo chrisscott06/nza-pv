@@ -10,16 +10,22 @@ import { regenerateFaces } from './regenerate.js';
 
 const ANCHOR: [number, number] = [-2.3013, 51.9213];
 
-function makeRect(lengthM: number, widthM: number): Polygon {
+function makeRect(lengthM: number, widthM: number, rotRad = 0): Polygon {
   const halfL = lengthM / 2;
   const halfW = widthM / 2;
-  // Build in OBB-local coords where +X is east, +Y is north.
-  // Use length along east-west (so 10m long, 5m N-S).
+  // Build local-metres rect, then rotate by rotRad CCW around the centroid,
+  // then project to lng/lat.
+  const cos = Math.cos(rotRad);
+  const sin = Math.sin(rotRad);
+  const rot = ([x, y]: [number, number]): [number, number] => [
+    x * cos - y * sin,
+    x * sin + y * cos,
+  ];
   const corners: Array<[number, number]> = [
-    metersToLngLat([-halfL, -halfW], ANCHOR),
-    metersToLngLat([halfL, -halfW], ANCHOR),
-    metersToLngLat([halfL, halfW], ANCHOR),
-    metersToLngLat([-halfL, halfW], ANCHOR),
+    metersToLngLat(rot([-halfL, -halfW]), ANCHOR),
+    metersToLngLat(rot([halfL, -halfW]), ANCHOR),
+    metersToLngLat(rot([halfL, halfW]), ANCHOR),
+    metersToLngLat(rot([-halfL, halfW]), ANCHOR),
   ];
   return { type: 'Polygon', coordinates: [[...corners, corners[0]!]] };
 }
@@ -109,6 +115,71 @@ describe('flat roof has a single horizontal face', () => {
     expect(faces[0]!.cardinal).toBe('flat');
     expect(faces[0]!.area_m2).toBeCloseTo(50, 0);
   });
+});
+
+describe('roof stays on the building footprint at any rotation', () => {
+  // For a perfect rectangle, the OBB IS the rectangle, so the roof's XY
+  // bounding box must match the footprint's XY bounding box to within a few
+  // millimetres at any rotation. This is the user-reported "roof flies off
+  // the building after rotation" check.
+  function rectBBox(rect: Polygon): { minLng: number; maxLng: number; minLat: number; maxLat: number } {
+    const ring = rect.coordinates[0] ?? [];
+    let minLng = Number.POSITIVE_INFINITY;
+    let maxLng = Number.NEGATIVE_INFINITY;
+    let minLat = Number.POSITIVE_INFINITY;
+    let maxLat = Number.NEGATIVE_INFINITY;
+    for (const c of ring) {
+      const lng = c[0]!;
+      const lat = c[1]!;
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    }
+    return { minLng, maxLng, minLat, maxLat };
+  }
+  function facesBBox(faces: ReturnType<typeof regenerateFaces>): {
+    minLng: number;
+    maxLng: number;
+    minLat: number;
+    maxLat: number;
+  } {
+    let minLng = Number.POSITIVE_INFINITY;
+    let maxLng = Number.NEGATIVE_INFINITY;
+    let minLat = Number.POSITIVE_INFINITY;
+    let maxLat = Number.NEGATIVE_INFINITY;
+    for (const f of faces) {
+      for (const c of f.geometry.coordinates[0] ?? []) {
+        const lng = (c as unknown as number[])[0]!;
+        const lat = (c as unknown as number[])[1]!;
+        if (lng < minLng) minLng = lng;
+        if (lng > maxLng) maxLng = lng;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+      }
+    }
+    return { minLng, maxLng, minLat, maxLat };
+  }
+
+  for (const rotDeg of [0, 15, 30, 45, 60, 75, 90, 135, -30]) {
+    for (const style of ['hip', 'gable', 'mono', 'mansard', 'hip', 'pyramid'] as const) {
+      it(`${style} aligns with the footprint at ${rotDeg}°`, () => {
+        const rect = makeRect(12, 6, (rotDeg * Math.PI) / 180);
+        const faces = regenerateFaces({
+          ...makeBuilding(rect),
+          roof: defaultRoofForStyle(style),
+        });
+        const expected = rectBBox(rect);
+        const actual = facesBBox(faces);
+        // 1e-6 in lng/lat ≈ 0.1m — generous tolerance for floating-point noise.
+        const TOL = 1e-6;
+        expect(Math.abs(actual.minLng - expected.minLng)).toBeLessThan(TOL);
+        expect(Math.abs(actual.maxLng - expected.maxLng)).toBeLessThan(TOL);
+        expect(Math.abs(actual.minLat - expected.minLat)).toBeLessThan(TOL);
+        expect(Math.abs(actual.maxLat - expected.maxLat)).toBeLessThan(TOL);
+      });
+    }
+  }
 });
 
 describe('all 12 presets generate at least one PV-eligible face on a typical rect', () => {

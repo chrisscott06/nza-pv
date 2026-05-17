@@ -169,17 +169,16 @@ function mono(
   // World unit vector for the high direction: world +X = east, +Y = north.
   const wx = Math.sin(worldBearing);
   const wy = Math.cos(worldBearing);
-  // Convert into OBB-local using the inverse of `boxToWorld`'s direction
-  // transform, which is
-  //   world.x = OBB.Y * cos R - OBB.X * sin R
-  //   world.y = OBB.Y * sin R + OBB.X * cos R
-  // inverse:
-  //   OBB.X = -world.x * sin R + world.y * cos R
-  //   OBB.Y =  world.x * cos R + world.y * sin R
+  // Convert into OBB-local. boxToWorld for a direction vector (dlx, dly):
+  //   world.x = dlx * cos R - dly * sin R
+  //   world.y = dlx * sin R + dly * cos R
+  // Inverse:
+  //   dlx =  world.x * cos R + world.y * sin R
+  //   dly = -world.x * sin R + world.y * cos R
   const cR = Math.cos(boxRotation);
   const sR = Math.sin(boxRotation);
-  const hLocalX = -wx * sR + wy * cR;
-  const hLocalY = wx * cR + wy * sR;
+  const hLocalX = wx * cR + wy * sR;
+  const hLocalY = -wx * sR + wy * cR;
   // Project each corner onto the high direction. The corner that projects the
   // furthest is the "highest"; the rest interpolate down to the eave.
   const corners: [number, number][] = [

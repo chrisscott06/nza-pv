@@ -1,22 +1,32 @@
-// Compute the oriented bounding box of a polygon footprint (in local metres).
-// Phase 1 — primary path for non-rectangular footprints is the OBB fit, which
-// gives gable / hip / mono / mansard / saltbox a sensible result on near-rect
-// shapes. True straight-skeleton support for L-shapes is on the TODO list
-// (see `briefs/phase-1-brief.md` flag list).
+// Oriented bounding box of a polygon footprint in local metres.
+//
+// Convention used everywhere in the roof engine:
+//   - OBB-local +X axis runs along the box's `length` (long dimension)
+//   - OBB-local +Y axis runs along the box's `width` (perpendicular)
+//   - `rotation` is the math angle (radians, CCW from world +X) of the long
+//     axis in world coordinates
+//
+// boxToWorld / worldToBox are exact inverses, and the round-trip preserves
+// the OBB-local axes (no swap, no sign flip). Generators that lay out
+// geometry as `(±halfL, ±halfW)` and emit polygons via `boxToWorld(...)` see
+// those polygons land exactly on the rotated footprint.
+//
+// Phase 1 still falls back to the OBB fit for non-rectangular footprints —
+// true straight-skeleton support for L-shapes is on the brief's escalation
+// list.
 
 import type { XY } from '@nza-pv/shared';
 
 export type OrientedBox = {
   /** Box centre in local metres. */
   center: XY;
-  /** Length along the "long" axis (metres). */
+  /** Length along the OBB-local +X axis (the longest dimension). */
   length: number;
-  /** Width along the perpendicular axis (metres). */
+  /** Width along the OBB-local +Y axis. */
   width: number;
-  /** Rotation of the long axis, radians, from +Y (north) clockwise. */
+  /** Math angle (radians, CCW from world +X) of the long axis. */
   rotation: number;
-  /** The 4 corners in original-metres coordinates, ordered CCW starting
-   *  bottom-left in local (rotated) frame. */
+  /** 4 corners in world metres, CCW starting bottom-left in OBB-local. */
   corners: [XY, XY, XY, XY];
 };
 
@@ -31,25 +41,27 @@ export function orientedBoundingBox(points: XY[]): OrientedBox {
       corners: [p, p, p, p],
     };
   }
-  // For Phase 1, use the rotating-calipers approximation against the convex
-  // hull — but in practice for nearly-rectangular footprints we just try a
-  // range of edge angles and pick the smallest area box.
+  // Rotating-calipers approximation: for each hull edge, fit a rectangle
+  // whose sides are parallel/perpendicular to that edge and pick the one
+  // with the smallest area.
   const hull = convexHull(points);
   let best: OrientedBox | null = null;
   for (let i = 0; i < hull.length; i++) {
     const a = hull[i] as XY;
     const b = hull[(i + 1) % hull.length] as XY;
-    const angle = Math.atan2(b[0] - a[0], b[1] - a[1]); // angle of edge in our frame
-    const box = boxAtAngle(points, angle);
+    // Math angle of the edge direction.
+    const edgeAngle = Math.atan2(b[1] - a[1], b[0] - a[0]);
+    const box = boxAlongAngle(points, edgeAngle);
     if (!best || box.length * box.width < best.length * best.width) best = box;
   }
-  return best ?? boxAtAngle(points, 0);
+  return best ?? boxAlongAngle(points, 0);
 }
 
-function boxAtAngle(points: XY[], angle: number): OrientedBox {
-  // Rotate points by -angle so the box is axis-aligned, then compute bounds.
-  const cos = Math.cos(-angle);
-  const sin = Math.sin(-angle);
+function boxAlongAngle(points: XY[], edgeAngle: number): OrientedBox {
+  // Rotate points by -edgeAngle CCW so the edge aligns with world +X.
+  // Then a plain axis-aligned bounding box gives us the OBB extents.
+  const cos = Math.cos(-edgeAngle);
+  const sin = Math.sin(-edgeAngle);
   let minX = Number.POSITIVE_INFINITY;
   let maxX = Number.NEGATIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
@@ -62,31 +74,33 @@ function boxAtAngle(points: XY[], angle: number): OrientedBox {
     if (ry < minY) minY = ry;
     if (ry > maxY) maxY = ry;
   }
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-  const w = maxX - minX;
-  const h = maxY - minY;
-  // Reverse-rotate the centre back.
-  const rcx = cx * Math.cos(angle) - cy * Math.sin(angle);
-  const rcy = cx * Math.sin(angle) + cy * Math.cos(angle);
-  // Long axis = the larger of (w, h). Rotation = angle aligned with that axis.
-  const longAlongX = w >= h;
-  const length = longAlongX ? w : h;
-  const width = longAlongX ? h : w;
-  const rotation = longAlongX ? angle - Math.PI / 2 : angle; // axis-of-length from north
-  const corners = unrotatedCorners(minX, maxX, minY, maxY, angle);
-  return { center: [rcx, rcy], length, width, rotation, corners };
+  const w = maxX - minX; // along edge direction
+  const h = maxY - minY; // perpendicular to edge
+  const longAlongEdge = w >= h;
+  const length = longAlongEdge ? w : h;
+  const width = longAlongEdge ? h : w;
+  // The long axis points along the edge direction when w >= h, otherwise
+  // perpendicular to it. Math angle of the long axis in world coords:
+  const rotation = longAlongEdge ? edgeAngle : edgeAngle + Math.PI / 2;
+  // Centre: in derotated frame, then rotated back to world by +edgeAngle CCW.
+  const dcx = (minX + maxX) / 2;
+  const dcy = (minY + maxY) / 2;
+  const cosBack = Math.cos(edgeAngle);
+  const sinBack = Math.sin(edgeAngle);
+  const center: XY = [dcx * cosBack - dcy * sinBack, dcx * sinBack + dcy * cosBack];
+  const corners = derotatedCornersToWorld(minX, maxX, minY, maxY, edgeAngle);
+  return { center, length, width, rotation, corners };
 }
 
-function unrotatedCorners(
+function derotatedCornersToWorld(
   minX: number,
   maxX: number,
   minY: number,
   maxY: number,
-  angle: number,
+  edgeAngle: number,
 ): [XY, XY, XY, XY] {
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
+  const cos = Math.cos(edgeAngle);
+  const sin = Math.sin(edgeAngle);
   const pts: XY[] = [
     [minX, minY],
     [maxX, minY],
@@ -125,24 +139,25 @@ function convexHull(points: XY[]): XY[] {
   return lower.concat(upper);
 }
 
-/** Project a point from world (footprint-local) metres into OBB-local axes
- *  where +X is along `length` and +Y is along `width`. */
+/** Convert an OBB-local point `(lx, ly)` to world metres.
+ *  +X is along length, +Y is along width — `box.rotation` is the math angle
+ *  CCW from world +X of the OBB-local +X axis. */
+export function boxToWorld(p: XY, box: OrientedBox): XY {
+  const lx = p[0];
+  const ly = p[1];
+  const cos = Math.cos(box.rotation);
+  const sin = Math.sin(box.rotation);
+  return [
+    box.center[0] + lx * cos - ly * sin,
+    box.center[1] + lx * sin + ly * cos,
+  ];
+}
+
+/** Inverse of `boxToWorld`. */
 export function worldToBox(p: XY, box: OrientedBox): XY {
   const dx = p[0] - box.center[0];
   const dy = p[1] - box.center[1];
-  const cos = Math.cos(-box.rotation);
-  const sin = Math.sin(-box.rotation);
-  // After rotation, length axis is +Y (north), so swap.
-  const rx = dx * cos - dy * sin;
-  const ry = dx * sin + dy * cos;
-  return [ry, rx]; // x:=along length, y:=across width
-}
-
-/** Inverse of `worldToBox`. */
-export function boxToWorld(p: XY, box: OrientedBox): XY {
-  const rx = p[1];
-  const ry = p[0];
   const cos = Math.cos(box.rotation);
   const sin = Math.sin(box.rotation);
-  return [rx * cos - ry * sin + box.center[0], rx * sin + ry * cos + box.center[1]];
+  return [dx * cos + dy * sin, -dx * sin + dy * cos];
 }
