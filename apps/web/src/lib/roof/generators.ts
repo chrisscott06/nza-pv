@@ -21,6 +21,9 @@ export type GeneratorInput = {
   halfW: number;
   /** Eave height (top of wall) in metres. */
   eave: number;
+  /** Angle of the OBB long axis from north (radians, CCW). Used by the few
+   *  generators that need to convert world cardinals into OBB-local space. */
+  boxRotation: number;
 };
 
 const DEG = Math.PI / 180;
@@ -148,69 +151,72 @@ function flat({ halfL, halfW, eave }: GeneratorInput, parapet: number): LocalFac
 }
 
 function mono(
-  { halfL, halfW, eave }: GeneratorInput,
+  { halfL, halfW, eave, boxRotation }: GeneratorInput,
   pitch: number,
   highSide: 'N' | 'E' | 'S' | 'W' | number,
 ): LocalFace[] {
-  const rise = 2 * halfW * Math.tan(pitch * DEG);
-  // Default: high side at +X (along length) → rotate later if highSide differs.
-  // Simpler: build with high side at +Y (north in OBB-local) and pick the right rotation.
-  // We'll build with high side at +Y (which is +width direction).
-  const z0 = eave;
-  const z1 = eave + rise;
-  // Top sloped face (north high → south low)
-  const top: V3[] = [
-    [-halfL, -halfW, z0],
-    [halfL, -halfW, z0],
-    [halfL, halfW, z1],
-    [-halfL, halfW, z1],
+  // High direction as a world compass bearing (CW from north).
+  const worldBearing =
+    typeof highSide === 'number'
+      ? highSide * DEG
+      : highSide === 'N'
+        ? 0
+        : highSide === 'E'
+          ? Math.PI / 2
+          : highSide === 'S'
+            ? Math.PI
+            : Math.PI * 1.5; // 'W'
+  // World unit vector for the high direction: world +X = east, +Y = north.
+  const wx = Math.sin(worldBearing);
+  const wy = Math.cos(worldBearing);
+  // Convert into OBB-local using the inverse of `boxToWorld`'s direction
+  // transform, which is
+  //   world.x = OBB.Y * cos R - OBB.X * sin R
+  //   world.y = OBB.Y * sin R + OBB.X * cos R
+  // inverse:
+  //   OBB.X = -world.x * sin R + world.y * cos R
+  //   OBB.Y =  world.x * cos R + world.y * sin R
+  const cR = Math.cos(boxRotation);
+  const sR = Math.sin(boxRotation);
+  const hLocalX = -wx * sR + wy * cR;
+  const hLocalY = wx * cR + wy * sR;
+  // Project each corner onto the high direction. The corner that projects the
+  // furthest is the "highest"; the rest interpolate down to the eave.
+  const corners: [number, number][] = [
+    [-halfL, -halfW],
+    [+halfL, -halfW],
+    [+halfL, +halfW],
+    [-halfL, +halfW],
   ];
+  const projs = corners.map(([x, y]) => x * hLocalX + y * hLocalY);
+  const minP = Math.min(...projs);
+  const maxP = Math.max(...projs);
+  const range = maxP - minP || 1;
+  const rise = range * Math.tan(pitch * DEG);
+  const cornerZ = projs.map((p) => eave + ((p - minP) / range) * rise);
+  // Top face — a single planar quadrilateral through the four corners at their
+  // computed z values. Always sits exactly on the building footprint.
+  const top: V3[] = corners.map(([x, y], i) => [x, y, cornerZ[i]!]);
   const faces: LocalFace[] = [{ role: 'main', ring: top }];
-  // Triangular end walls (E and W)
-  faces.push(
-    {
+  // Walls under each edge of the top face. Skip edges where both corners are
+  // at the eave (those edges are the low side, no wall needed).
+  for (let i = 0; i < 4; i++) {
+    const [x0, y0] = corners[i]!;
+    const [x1, y1] = corners[(i + 1) % 4]!;
+    const z0 = cornerZ[i]!;
+    const z1 = cornerZ[(i + 1) % 4]!;
+    if (z0 <= eave + 0.001 && z1 <= eave + 0.001) continue;
+    faces.push({
       role: 'gable_end_wall',
       ring: [
-        [halfL, -halfW, z0],
-        [halfL, halfW, z0],
-        [halfL, halfW, z1],
+        [x0, y0, eave],
+        [x1, y1, eave],
+        [x1, y1, z1],
+        [x0, y0, z0],
       ],
-    },
-    {
-      role: 'gable_end_wall',
-      ring: [
-        [-halfL, halfW, z0],
-        [-halfL, -halfW, z0],
-        [-halfL, halfW, z1],
-      ],
-    },
-  );
-  // Rotate the whole thing to put the high side at the requested cardinal.
-  const targetRot = highSideToRotation(highSide);
-  return targetRot === 0
-    ? faces
-    : faces.map((f) => ({ role: f.role, ring: f.ring.map((p) => rotateZ(p, targetRot)) }));
-}
-
-function highSideToRotation(highSide: 'N' | 'E' | 'S' | 'W' | number): number {
-  // Built with high side at +Y (north). Rotate to align with requested side.
-  if (typeof highSide === 'number') return (highSide - 0) * DEG; // user gave bearing
-  switch (highSide) {
-    case 'N':
-      return 0;
-    case 'E':
-      return -Math.PI / 2;
-    case 'S':
-      return Math.PI;
-    case 'W':
-      return Math.PI / 2;
+    });
   }
-}
-
-function rotateZ(p: V3, rad: number): V3 {
-  const c = Math.cos(rad);
-  const s = Math.sin(rad);
-  return [p[0] * c - p[1] * s, p[0] * s + p[1] * c, p[2]];
+  return faces;
 }
 
 function gable({ halfL, halfW, eave }: GeneratorInput, pitch: number): LocalFace[] {
@@ -250,12 +256,19 @@ function gable({ halfL, halfW, eave }: GeneratorInput, pitch: number): LocalFace
   ];
 }
 
-function hip({ halfL, halfW, eave }: GeneratorInput, pitch: number): LocalFace[] {
+function rotateZ(p: V3, rad: number): V3 {
+  const c = Math.cos(rad);
+  const s = Math.sin(rad);
+  return [p[0] * c - p[1] * s, p[0] * s + p[1] * c, p[2]];
+}
+
+function hip(input: GeneratorInput, pitch: number): LocalFace[] {
+  const { halfL, halfW, eave } = input;
   // For a uniform-pitch hip on a rectangle, ridge length = (L - W).
   // Ridge runs along +X. Height above eave = halfW * tan(pitch).
   if (halfW >= halfL) {
     // Square / wider-than-long: collapse to a pyramid.
-    return pyramid({ halfL, halfW, eave }, pitch);
+    return pyramid(input, pitch);
   }
   const rise = halfW * Math.tan(pitch * DEG);
   const z0 = eave;
@@ -336,17 +349,18 @@ function dutchHip(
 }
 
 function gambrel(
-  { halfL, halfW, eave }: GeneratorInput,
+  input: GeneratorInput,
   lower: number,
   upper: number,
   breakH: number,
 ): LocalFace[] {
+  const { halfL, halfW, eave } = input;
   // Lower slopes from eave up & in to break-height, upper slopes to ridge.
   const z0 = eave;
   const z1 = eave + breakH;
   const lowerRun = breakH / Math.tan(lower * DEG);
   const breakY = halfW - lowerRun;
-  if (breakY <= 0.05) return gable({ halfL, halfW, eave }, lower);
+  if (breakY <= 0.05) return gable(input, lower);
   const upperRise = breakY * Math.tan(upper * DEG);
   const z2 = z1 + upperRise;
   const faces: LocalFace[] = [];
@@ -634,12 +648,16 @@ function pyramid({ halfL, halfW, eave }: GeneratorInput, pitch: number): LocalFa
   ];
 }
 
-function crossGabled({ halfL, halfW, eave }: GeneratorInput, pitch: number): LocalFace[] {
+function crossGabled(input: GeneratorInput, pitch: number): LocalFace[] {
+  const { halfL, halfW, eave, boxRotation } = input;
   // Simplified — render as a primary gable plus a transverse gable at the
   // mid-point. True L-shape support waits for straight-skeleton.
-  const main = gable({ halfL, halfW, eave }, pitch);
+  const main = gable(input, pitch);
   // Transverse: build a smaller gable rotated 90° at the centre, then add.
-  const cross = gable({ halfL: halfW, halfW: halfL * 0.3, eave }, pitch).map((f) => ({
+  const cross = gable(
+    { halfL: halfW, halfW: halfL * 0.3, eave, boxRotation },
+    pitch,
+  ).map((f) => ({
     role: f.role,
     ring: f.ring.map((p) => rotateZ(p, Math.PI / 2)),
   }));

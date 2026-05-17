@@ -28,7 +28,12 @@ export function regenerateFaces(building: Building): RoofFace[] {
   const halfW = box.width / 2;
   if (halfL <= 0 || halfW <= 0) return [];
 
-  const localFaces = generateRoof(building.roof, { halfL, halfW, eave: building.eave_height_m });
+  const localFaces = generateRoof(building.roof, {
+    halfL,
+    halfW,
+    eave: building.eave_height_m,
+    boxRotation: box.rotation,
+  });
 
   const faces: RoofFace[] = localFaces.map((lf) => {
     // Convert each vertex from OBB-local back to world (metres), then to lng/lat.

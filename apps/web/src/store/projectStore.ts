@@ -284,11 +284,23 @@ export const useProject = create<ProjectStore>((set, get) => ({
         project: produce(s.project, (p) => {
           const b = p.buildings.find((x) => x.id === id);
           if (!b) return;
-          if (opts.storeys != null) b.storeys = opts.storeys;
-          if (opts.storey_height_m != null) b.storey_height_m = opts.storey_height_m;
+          // Keep storeys × storey_height === eave_height as an invariant so
+          // the three inputs never drift out of sync. Whichever value the user
+          // just edited drives the other two:
+          //   - storeys change      → eave = storeys × storey_height
+          //   - storey_height change → eave = storeys × storey_height
+          //   - eave change          → storeys = round(eave / storey_height),
+          //                            then snap eave back to storeys × storey_height
           if (opts.eave_height_m != null) {
-            b.eave_height_m = opts.eave_height_m;
+            const sh = b.storey_height_m || DEFAULT_STOREY_HEIGHT_M;
+            const targetEave = Math.max(0.1, opts.eave_height_m);
+            b.storeys = Math.max(1, Math.round(targetEave / sh));
+            b.eave_height_m = b.storeys * sh;
           } else {
+            if (opts.storeys != null) b.storeys = Math.max(1, Math.round(opts.storeys));
+            if (opts.storey_height_m != null) {
+              b.storey_height_m = Math.max(0.1, opts.storey_height_m);
+            }
             b.eave_height_m = b.storeys * b.storey_height_m;
           }
           touch(p);
