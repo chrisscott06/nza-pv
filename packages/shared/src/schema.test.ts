@@ -9,6 +9,7 @@ import {
   metersToLngLat,
   polygonAreaM2,
   polygonAzimuthDeg,
+  polygonRingToMeters,
   polygonTiltDeg,
   summarisePv,
 } from './index.js';
@@ -29,6 +30,26 @@ describe('schema', () => {
 });
 
 describe('geo', () => {
+  it('strips the closing duplicate vertex even when it is a separate array', () => {
+    // This is the regression that caused rectangles to grow a vertex per edit:
+    // ring[0] and ring[last] held equal lng/lat but as different array objects,
+    // so the old reference-equality check missed the dup.
+    const polygon = {
+      type: 'Polygon' as const,
+      coordinates: [
+        [
+          [-2.3, 51.9],
+          [-2.29, 51.9],
+          [-2.29, 51.91],
+          [-2.3, 51.91],
+          [-2.3, 51.9], // closing dup as a fresh array
+        ],
+      ],
+    };
+    const metres = polygonRingToMeters(polygon, [-2.295, 51.905]);
+    expect(metres).toHaveLength(4);
+  });
+
   it('round-trips lng/lat → metres → lng/lat within mm', () => {
     const anchor: [number, number] = [-2.3013, 51.9213];
     const original: [number, number] = [-2.3009, 51.9216];

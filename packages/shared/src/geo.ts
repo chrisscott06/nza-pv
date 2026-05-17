@@ -37,9 +37,7 @@ export function polygonCentroidLngLat(polygon: Polygon): LngLat {
   if (ring.length === 0) return [0, 0];
   let sx = 0;
   let sy = 0;
-  // Skip the closing duplicate vertex.
-  const last = ring.length - 1;
-  const count = ring[0] === ring[last] ? last : ring.length;
+  const count = effectiveRingCount(ring);
   for (let i = 0; i < count; i++) {
     const p = ring[i] as [number, number];
     sx += p[0];
@@ -52,13 +50,26 @@ export function polygonCentroidLngLat(polygon: Polygon): LngLat {
 export function polygonRingToMeters(polygon: Polygon, anchor: LngLat): XY[] {
   const ring = polygon.coordinates[0] ?? [];
   const out: XY[] = [];
-  const last = ring.length - 1;
-  const count = ring[0] === ring[last] && ring.length > 1 ? last : ring.length;
+  const count = effectiveRingCount(ring);
   for (let i = 0; i < count; i++) {
     const p = ring[i] as [number, number];
     out.push(lngLatToMeters([p[0], p[1]], anchor));
   }
   return out;
+}
+
+/** Returns the number of unique vertices, ignoring the closing duplicate if
+ *  one is present. Uses value equality (not reference) so polygons rebuilt
+ *  from edits still strip correctly. */
+function effectiveRingCount(ring: ReadonlyArray<readonly number[]>): number {
+  if (ring.length < 2) return ring.length;
+  const a = ring[0] as readonly number[];
+  const b = ring[ring.length - 1] as readonly number[];
+  const EPS = 1e-12;
+  if (a.length >= 2 && b.length >= 2 && Math.abs(a[0]! - b[0]!) < EPS && Math.abs(a[1]! - b[1]!) < EPS) {
+    return ring.length - 1;
+  }
+  return ring.length;
 }
 
 /** Shoelace area of a 2D polygon (metres²). Sign indicates winding. */
