@@ -71,17 +71,7 @@ function RoofParams({ roof, onChange }: { roof: Roof; onChange: (r: Roof) => voi
             value={roof.pitch_deg}
             onChange={(v) => onChange({ ...roof, pitch_deg: v })}
           />
-          <SelectRow
-            label="High side"
-            value={String(roof.high_side)}
-            options={[
-              ['N', 'North'],
-              ['E', 'East'],
-              ['S', 'South'],
-              ['W', 'West'],
-            ]}
-            onChange={(v) => onChange({ ...roof, high_side: v as 'N' | 'E' | 'S' | 'W' })}
-          />
+          <RotateOrientationRow roof={roof} onChange={onChange} />
         </>
       );
     case 'gable':
@@ -96,20 +86,7 @@ function RoofParams({ roof, onChange }: { roof: Roof; onChange: (r: Roof) => voi
             value={(roof as { pitch_deg: number }).pitch_deg}
             onChange={(v) => onChange({ ...roof, pitch_deg: v } as Roof)}
           />
-          {'ridge_axis' in roof && (
-            <SelectRow
-              label="Ridge axis"
-              value={roof.ridge_axis}
-              options={[
-                ['longest', 'Longest edge'],
-                ['shortest', 'Shortest edge'],
-                ['custom', 'Custom angle'],
-              ]}
-              onChange={(v) =>
-                onChange({ ...roof, ridge_axis: v as 'longest' | 'shortest' | 'custom' } as Roof)
-              }
-            />
-          )}
+          <RotateOrientationRow roof={roof} onChange={onChange} />
           {'hip_ratio' in roof && (
             <RangeRow
               label="Hip ratio"
@@ -156,6 +133,7 @@ function RoofParams({ roof, onChange }: { roof: Roof; onChange: (r: Roof) => voi
             value={roof.break_height_m}
             onChange={(v) => onChange({ ...roof, break_height_m: v })}
           />
+          <RotateOrientationRow roof={roof} onChange={onChange} />
         </>
       );
     case 'saltbox':
@@ -180,6 +158,7 @@ function RoofParams({ roof, onChange }: { roof: Roof; onChange: (r: Roof) => voi
             value={roof.ridge_offset_pct}
             onChange={(v) => onChange({ ...roof, ridge_offset_pct: v })}
           />
+          <RotateOrientationRow roof={roof} onChange={onChange} />
         </>
       );
     case 'sawtooth':
@@ -261,27 +240,90 @@ function RangeRow({
   );
 }
 
-function SelectRow({
-  label,
-  value,
-  options,
+/** Single "Rotate orientation 90°" button that replaces the old ridge-axis /
+ *  high-side dropdowns. Works for any roof whose schema exposes an
+ *  orientation parameter:
+ *    - mono: cycles high_side N → E → S → W → N
+ *    - gable / hip / dutch_hip / gambrel / mansard / saltbox: toggles
+ *      ridge_axis between 'longest' and 'shortest', which is geometrically
+ *      a 90° swap of the ridge direction
+ *  Shapes with no schema orientation (flat, pyramid, sawtooth, butterfly,
+ *  cross_gabled) render nothing — they're either rotationally symmetric or
+ *  await a Phase 2 schema bump. */
+function RotateOrientationRow({
+  roof,
   onChange,
+}: { roof: Roof; onChange: (r: Roof) => void }): JSX.Element | null {
+  if ('ridge_axis' in roof) {
+    const current = roof.ridge_axis;
+    const next = current === 'shortest' ? 'longest' : 'shortest';
+    return (
+      <ButtonRow
+        label="Orientation"
+        hint={current === 'shortest' ? 'Ridge along short edge' : 'Ridge along long edge'}
+        cta="Rotate 90°"
+        onClick={() => onChange({ ...roof, ridge_axis: next } as Roof)}
+      />
+    );
+  }
+  if (roof.style === 'mono') {
+    const seq: Array<'N' | 'E' | 'S' | 'W'> = ['N', 'E', 'S', 'W'];
+    const currentLabel =
+      typeof roof.high_side === 'number' ? `${Math.round(roof.high_side)}°` : `High side ${roof.high_side}`;
+    return (
+      <ButtonRow
+        label="Orientation"
+        hint={currentLabel}
+        cta="Rotate 90°"
+        onClick={() => {
+          if (typeof roof.high_side === 'number') {
+            onChange({ ...roof, high_side: (roof.high_side + 90) % 360 });
+            return;
+          }
+          const idx = seq.indexOf(roof.high_side as 'N' | 'E' | 'S' | 'W');
+          const next = seq[(idx + 1) % 4]!;
+          onChange({ ...roof, high_side: next });
+        }}
+      />
+    );
+  }
+  return null;
+}
+
+function ButtonRow({
+  label,
+  hint,
+  cta,
+  onClick,
 }: {
   label: string;
-  value: string;
-  options: ReadonlyArray<readonly [string, string]>;
-  onChange: (v: string) => void;
+  hint: string;
+  cta: string;
+  onClick: () => void;
 }): JSX.Element {
   return (
     <div className="field-row">
-      <label>{label}</label>
-      <select value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map(([v, l]) => (
-          <option key={v} value={v}>
-            {l}
-          </option>
-        ))}
-      </select>
+      <label title={hint}>{label}</label>
+      <button
+        type="button"
+        onClick={onClick}
+        title={`${hint} · click to rotate`}
+        style={{
+          background: 'var(--c-panel-2)',
+          border: '1px solid var(--c-border)',
+          borderRadius: 4,
+          padding: '4px 8px',
+          fontSize: 12,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
+        }}
+      >
+        <span style={{ fontSize: 14 }} aria-hidden>
+          ↻
+        </span>
+        {cta}
+      </button>
     </div>
   );
 }

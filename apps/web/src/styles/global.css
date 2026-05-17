@@ -586,10 +586,14 @@ a:hover {
 }
 .preset-tile .tile-name {
   font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: #f0ebe5;
   text-align: center;
-  padding: 3px 4px;
-  background: rgba(0, 0, 0, 0.55);
+  padding: 4px 4px;
+  background: rgba(0, 0, 0, 0.78);
   text-transform: uppercase;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.85);
   letter-spacing: 0.04em;
   color: var(--c-text);
 }

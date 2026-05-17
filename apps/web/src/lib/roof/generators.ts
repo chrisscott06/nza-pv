@@ -197,23 +197,42 @@ function mono(
   // computed z values. Always sits exactly on the building footprint.
   const top: V3[] = corners.map(([x, y], i) => [x, y, cornerZ[i]!]);
   const faces: LocalFace[] = [{ role: 'main', ring: top }];
-  // Walls under each edge of the top face. Skip edges where both corners are
-  // at the eave (those edges are the low side, no wall needed).
+  // Walls under each edge of the top face. We treat each wall as a polygon
+  // bounded below by the eave and above by the sloped main face. If either
+  // corner sits exactly on the eave, drop the duplicated vertex so the
+  // earcut triangulator in SceneView doesn't see a degenerate polygon and
+  // emit NaN normals (which crash the WebGL context on the next pick).
+  const EPS = 0.001;
   for (let i = 0; i < 4; i++) {
     const [x0, y0] = corners[i]!;
     const [x1, y1] = corners[(i + 1) % 4]!;
     const z0 = cornerZ[i]!;
     const z1 = cornerZ[(i + 1) % 4]!;
-    if (z0 <= eave + 0.001 && z1 <= eave + 0.001) continue;
-    faces.push({
-      role: 'gable_end_wall',
-      ring: [
+    const low0 = z0 <= eave + EPS;
+    const low1 = z1 <= eave + EPS;
+    if (low0 && low1) continue; // both on eave — no wall to draw
+    let ring: V3[];
+    if (low0) {
+      ring = [
+        [x0, y0, eave],
+        [x1, y1, eave],
+        [x1, y1, z1],
+      ];
+    } else if (low1) {
+      ring = [
+        [x0, y0, eave],
+        [x1, y1, eave],
+        [x0, y0, z0],
+      ];
+    } else {
+      ring = [
         [x0, y0, eave],
         [x1, y1, eave],
         [x1, y1, z1],
         [x0, y0, z0],
-      ],
-    });
+      ];
+    }
+    faces.push({ role: 'gable_end_wall', ring });
   }
   return faces;
 }

@@ -301,20 +301,45 @@ function FaceMesh({
 }
 
 /** Build a planar triangulated BufferGeometry from a 3D polygon by projecting
- *  to the plane's normal and using earcut. */
-function buildPolygonGeometry(verts: THREE.Vector3[]): THREE.BufferGeometry {
+ *  to the plane's normal and using earcut. Returns null for degenerate inputs
+ *  so the caller can skip them instead of pushing NaN into a buffer (which
+ *  crashes WebGL on the next raycast / pick). */
+function buildPolygonGeometry(verts: THREE.Vector3[]): THREE.BufferGeometry | null {
+  if (verts.length < 3) return null;
+  // De-duplicate consecutive vertices that share the same XYZ — a degenerate
+  // ring (e.g. a wall whose corner has zero height) would otherwise yield
+  // zero-area triangles and NaN vertex normals.
+  const clean: THREE.Vector3[] = [];
+  const EPS = 1e-6;
+  for (const v of verts) {
+    if (!Number.isFinite(v.x) || !Number.isFinite(v.y) || !Number.isFinite(v.z)) continue;
+    const prev = clean[clean.length - 1];
+    if (prev && Math.abs(prev.x - v.x) < EPS && Math.abs(prev.y - v.y) < EPS && Math.abs(prev.z - v.z) < EPS) continue;
+    clean.push(v);
+  }
+  if (clean.length >= 2) {
+    const first = clean[0]!;
+    const last = clean[clean.length - 1]!;
+    if (Math.abs(first.x - last.x) < EPS && Math.abs(first.y - last.y) < EPS && Math.abs(first.z - last.z) < EPS) {
+      clean.pop();
+    }
+  }
+  if (clean.length < 3) return null;
   const g = new THREE.BufferGeometry();
   const positions: number[] = [];
   // Compute plane normal via Newell's method.
   const n = new THREE.Vector3();
-  for (let i = 0; i < verts.length; i++) {
-    const a = verts[i]!;
-    const b = verts[(i + 1) % verts.length]!;
+  for (let i = 0; i < clean.length; i++) {
+    const a = clean[i]!;
+    const b = clean[(i + 1) % clean.length]!;
     n.x += (a.y - b.y) * (a.z + b.z);
     n.y += (a.z - b.z) * (a.x + b.x);
     n.z += (a.x - b.x) * (a.y + b.y);
   }
+  if (n.lengthSq() < EPS) return null; // truly degenerate / collinear
   n.normalize();
+  // Replace `verts` with the cleaned ring for the rest of the function.
+  verts = clean;
   // Build a basis on the plane.
   const u = new THREE.Vector3();
   const v = new THREE.Vector3();
