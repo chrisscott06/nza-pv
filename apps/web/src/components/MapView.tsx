@@ -51,18 +51,34 @@ export function MapView(): JSX.Element {
       pitch: initialView?.pitch ?? 0,
       maxZoom: 21,
       attributionControl: { compact: true },
+      // 2D-only: no right-click rotation, no shift-drag pitch.
+      dragRotate: false,
+      pitchWithRotate: false,
+      touchPitch: false,
+      // Disable right-click context-menu hijack while we're at it; otherwise
+      // a stray right-click in select mode triggers the maplibre rotation
+      // gesture which we've also disabled, but the menu still flickers.
     });
+    map.touchZoomRotate.disableRotation();
     map.on('error', (e) => {
       // If the initial style fails (offline / blocked), swap to OSM raster.
       if (!map.isStyleLoaded()) map.setStyle(fallbackStyle);
       // Silence noisy tile load errors.
       if (e?.error && typeof e.error === 'object' && 'message' in e.error) return;
     });
+    // Controls live in the bottom-left so the buildings/inspector panel in
+    // the top-right has room. Compass stays on so users have a one-click
+    // "reset to north" — there's no mouse-wheel equivalent for that.
     map.addControl(
-      new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }),
-      'top-right',
+      new maplibregl.NavigationControl({ showCompass: true, visualizePitch: false, showZoom: true }),
+      'bottom-left',
     );
-    map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+    map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
+
+    // Swallow the right-click context menu over the canvas — `dragRotate` is
+    // off so the gesture does nothing useful, and the browser menu obscures
+    // the map.
+    map.getCanvas().addEventListener('contextmenu', (e) => e.preventDefault());
 
     map.on('moveend', () => {
       setCamera({

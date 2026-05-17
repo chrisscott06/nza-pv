@@ -4,6 +4,7 @@ import { downloadProject, rememberRecent } from '../lib/persistence.js';
 import { useProject } from '../store/projectStore.js';
 import { toast } from '../store/toasts.js';
 import { BuildingList } from './BuildingList.js';
+import { ErrorBoundary } from './ErrorBoundary.js';
 import { InspectorPanel } from './InspectorPanel.js';
 import { MapView } from './MapView.js';
 import { SceneView } from './SceneView.js';
@@ -54,7 +55,9 @@ export function Workspace(): JSX.Element {
 
   return (
     <div className="main">
-      {view === '3d' ? <SceneView /> : <MapView />}
+      <ErrorBoundary label={view === '3d' ? '3D scene' : 'Map'} key={view}>
+        {view === '3d' ? <SceneView /> : <MapView />}
+      </ErrorBoundary>
       <div className="map-overlays">
         <Toolbar />
         <div className="side-panel">
@@ -64,7 +67,9 @@ export function Workspace(): JSX.Element {
           </section>
           <section className="section" style={{ flex: 1, overflowY: 'auto' }}>
             <h3 className="section-title">Inspector</h3>
-            <InspectorPanel />
+            <ErrorBoundary label="Inspector">
+              <InspectorPanel />
+            </ErrorBoundary>
           </section>
         </div>
       </div>

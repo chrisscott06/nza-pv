@@ -30,13 +30,17 @@ export function installLayers(map: maplibregl.Map): void {
     data: { type: 'FeatureCollection', features: [] },
   });
 
+  // Hot coral palette — pops on satellite imagery (which is mostly green and
+  // brown) so unselected buildings stay clearly visible. Selected buildings
+  // switch to the cream/green palette for contrast against neighbouring coral
+  // outlines.
   map.addLayer({
     id: 'buildings-fill',
     type: 'fill',
     source: BUILDINGS_SRC,
     paint: {
-      'fill-color': ['case', ['boolean', ['get', 'selected'], false], '#a3e6ad', '#e7ddc6'],
-      'fill-opacity': ['case', ['boolean', ['get', 'selected'], false], 0.45, 0.32],
+      'fill-color': ['case', ['boolean', ['get', 'selected'], false], '#fff1cf', '#ff5d57'],
+      'fill-opacity': ['case', ['boolean', ['get', 'selected'], false], 0.5, 0.32],
     },
   });
   map.addLayer({
@@ -44,8 +48,8 @@ export function installLayers(map: maplibregl.Map): void {
     type: 'line',
     source: BUILDINGS_SRC,
     paint: {
-      'line-color': ['case', ['boolean', ['get', 'selected'], false], '#7ec98a', '#1f6f4f'],
-      'line-width': ['case', ['boolean', ['get', 'selected'], false], 2.5, 1.5],
+      'line-color': ['case', ['boolean', ['get', 'selected'], false], '#ffeb3b', '#ff5d57'],
+      'line-width': ['case', ['boolean', ['get', 'selected'], false], 3.5, 2.2],
     },
   });
 
@@ -53,13 +57,13 @@ export function installLayers(map: maplibregl.Map): void {
     id: 'draft-fill',
     type: 'fill',
     source: DRAFT_SRC,
-    paint: { 'fill-color': '#7ec98a', 'fill-opacity': 0.22 },
+    paint: { 'fill-color': '#ff5d57', 'fill-opacity': 0.22 },
   });
   map.addLayer({
     id: 'draft-line',
     type: 'line',
     source: DRAFT_SRC,
-    paint: { 'line-color': '#7ec98a', 'line-width': 2, 'line-dasharray': [2, 2] },
+    paint: { 'line-color': '#ff5d57', 'line-width': 2.5, 'line-dasharray': [2, 2] },
   });
 }
 
