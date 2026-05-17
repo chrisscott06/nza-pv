@@ -656,22 +656,20 @@ a:hover {
   background: var(--c-accent);
   border-radius: 3px;
 }
-.edit-handle.rotate {
-  width: 16px;
-  height: 16px;
+.edit-handle.corner {
+  width: 22px;
+  height: 22px;
   background: var(--c-warning);
-  border-radius: 50%;
-  position: relative;
+  border-radius: 4px;
+  color: #2b1d05;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
 }
-.edit-handle.rotate::after {
-  content: '';
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  width: 2px;
+.edit-handle.corner svg {
+  width: 14px;
   height: 14px;
-  background: var(--c-warning);
-  transform: translateX(-50%);
   pointer-events: none;
 }
 
