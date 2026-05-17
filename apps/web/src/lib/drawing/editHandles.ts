@@ -32,6 +32,16 @@ const MOVE_ARROWS_SVG = `
   <path d='M12 2 L8 6 L10.5 6 L10.5 10.5 L6 10.5 L6 8 L2 12 L6 16 L6 13.5 L10.5 13.5 L10.5 18 L8 18 L12 22 L16 18 L13.5 18 L13.5 13.5 L18 13.5 L18 16 L22 12 L18 8 L18 10.5 L13.5 10.5 L13.5 6 L16 6 Z' fill='currentColor'/>
 </svg>`.trim();
 
+const PIVOT_SVG = `
+<svg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'>
+  <circle cx='12' cy='12' r='9' fill='none' stroke='currentColor' stroke-width='1.5'/>
+  <circle cx='12' cy='12' r='2' fill='currentColor'/>
+  <line x1='12' y1='1' x2='12' y2='6' stroke='currentColor' stroke-width='1.4'/>
+  <line x1='12' y1='18' x2='12' y2='23' stroke='currentColor' stroke-width='1.4'/>
+  <line x1='1' y1='12' x2='6' y2='12' stroke='currentColor' stroke-width='1.4'/>
+  <line x1='18' y1='12' x2='23' y2='12' stroke='currentColor' stroke-width='1.4'/>
+</svg>`.trim();
+
 function makeEdgeEl(): HTMLDivElement {
   const el = document.createElement('div');
   el.className = 'edit-handle edge';
@@ -52,6 +62,13 @@ function makeMoveEl(): HTMLDivElement {
   return el;
 }
 
+function makePivotEl(): HTMLDivElement {
+  const el = document.createElement('div');
+  el.className = 'edit-handle pivot';
+  el.innerHTML = PIVOT_SVG;
+  return el;
+}
+
 /** Mount all edit handles for `building`. Returns a teardown function. */
 export function mountEditHandles(map: maplibregl.Map, building: Building): () => void {
   const ring = (building.footprint.coordinates[0] ?? []) as LngLat[];
@@ -66,7 +83,16 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
   const anchor = polygonCentroidLngLat(building.footprint);
 
   // Track which marker (if any) the user is currently dragging so syncs skip it.
-  let activeIndex: { kind: 'edge' | 'corner' | 'move'; index: number } | null = null;
+  let activeIndex: { kind: 'edge' | 'corner' | 'move' | 'pivot'; index: number } | null = null;
+  // Pivot point in metres relative to `anchor`. Defaults to centroid; the user
+  // can drag it anywhere (snapping to centroid / corners / midpoints). All
+  // rotations happen around this point.
+  let pivotM: XY = (() => {
+    const v = polygonRingToMeters(building.footprint, anchor);
+    return [avg(v.map((p) => p[0])), avg(v.map((p) => p[1]))];
+  })();
+  // Snap radius in metres for pivot release.
+  const PIVOT_SNAP_M = 1.2;
 
   // ---- Edge midpoint markers (push-pull) -----------------------------------
   const edgeMarkers: maplibregl.Marker[] = [];
@@ -117,21 +143,16 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
       initialVerts = polygonRingToMeters(b.footprint, anchor);
       const here = marker.getLngLat();
       const hereM = lngLatToMeters([here.lng, here.lat], anchor);
-      // Centroid of initialVerts.
-      const cx = avg(initialVerts.map((v) => v[0]));
-      const cy = avg(initialVerts.map((v) => v[1]));
-      initialAngle = Math.atan2(hereM[1] - cy, hereM[0] - cx);
+      initialAngle = Math.atan2(hereM[1] - pivotM[1], hereM[0] - pivotM[0]);
     });
     marker.on('drag', () => {
       const b = currentBuilding(building.id);
       if (!b) return;
       const here = marker.getLngLat();
       const hereM = lngLatToMeters([here.lng, here.lat], anchor);
-      const cx = avg(initialVerts.map((v) => v[0]));
-      const cy = avg(initialVerts.map((v) => v[1]));
-      const angle = Math.atan2(hereM[1] - cy, hereM[0] - cx);
+      const angle = Math.atan2(hereM[1] - pivotM[1], hereM[0] - pivotM[0]);
       const delta = angle - initialAngle;
-      rotateBuilding(building.id, anchor, initialVerts, delta);
+      rotateBuildingAround(building.id, anchor, initialVerts, pivotM, delta);
       commitFaceRegen(building.id);
       syncMarkers();
     });
@@ -160,7 +181,12 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
     moveInitialVerts = polygonRingToMeters(b.footprint, anchor);
     const here = moveMarker.getLngLat();
     moveInitialMarkerM = lngLatToMeters([here.lng, here.lat], anchor);
+    pivotInitialAtMoveStart = [pivotM[0], pivotM[1]];
   });
+  // Pivot starts pinned to the centroid, so we offset it from the centroid
+  // by this delta. When the building moves, both centroid and pivot translate
+  // together; when the user manually moves the pivot, this delta updates.
+  let pivotInitialAtMoveStart: XY = [0, 0];
   moveMarker.on('drag', () => {
     const here = moveMarker.getLngLat();
     const hereM = lngLatToMeters([here.lng, here.lat], anchor);
@@ -168,11 +194,61 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
     const dy = hereM[1] - moveInitialMarkerM[1];
     const translated = moveInitialVerts.map(([x, y]) => [x + dx, y + dy] as XY);
     setFootprintFromMetres(building.id, translated, anchor);
+    pivotM = [pivotInitialAtMoveStart[0] + dx, pivotInitialAtMoveStart[1] + dy];
     commitFaceRegen(building.id);
     syncMarkers();
   });
   moveMarker.on('dragend', () => {
     commitFaceRegen(building.id);
+    activeIndex = null;
+    map.getCanvas().style.cursor = '';
+    syncMarkers();
+  });
+
+  // ---- Pivot marker (rotation centre) --------------------------------------
+  const pivotMarker = new maplibregl.Marker({
+    element: makePivotEl(),
+    draggable: true,
+    anchor: 'center',
+  })
+    .setLngLat(metersToLngLat(pivotM, anchor))
+    .addTo(map);
+
+  pivotMarker.on('dragstart', () => {
+    activeIndex = { kind: 'pivot', index: 0 };
+    map.getCanvas().style.cursor = 'grabbing';
+  });
+  pivotMarker.on('drag', () => {
+    const here = pivotMarker.getLngLat();
+    pivotM = lngLatToMeters([here.lng, here.lat], anchor);
+  });
+  pivotMarker.on('dragend', () => {
+    // Snap to nearest of: centroid, 4 corners, 4 edge midpoints (if within
+    // PIVOT_SNAP_M metres). Lets users park the pivot precisely.
+    const b = currentBuilding(building.id);
+    if (b) {
+      const verts = polygonRingToMeters(b.footprint, anchor);
+      if (verts.length >= 4) {
+        const targets: XY[] = [];
+        targets.push([avg(verts.map((v) => v[0])), avg(verts.map((v) => v[1]))]);
+        for (let i = 0; i < 4; i++) {
+          targets.push(verts[i]!);
+          const a = verts[i]!;
+          const c = verts[(i + 1) % 4]!;
+          targets.push([(a[0] + c[0]) / 2, (a[1] + c[1]) / 2]);
+        }
+        let best = pivotM;
+        let bestDist = PIVOT_SNAP_M;
+        for (const t of targets) {
+          const d = Math.hypot(t[0] - pivotM[0], t[1] - pivotM[1]);
+          if (d < bestDist) {
+            best = t;
+            bestDist = d;
+          }
+        }
+        pivotM = best;
+      }
+    }
     activeIndex = null;
     map.getCanvas().style.cursor = '';
     syncMarkers();
@@ -200,6 +276,9 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
       const cy = avg(verts.map((v) => v[1]));
       moveMarker.setLngLat(metersToLngLat([cx, cy], anchor));
     }
+    if (activeIndex?.kind !== 'pivot') {
+      pivotMarker.setLngLat(metersToLngLat(pivotM, anchor));
+    }
   }
 
   syncMarkers();
@@ -208,6 +287,7 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
     for (const m of edgeMarkers) m.remove();
     for (const m of cornerMarkers) m.remove();
     moveMarker.remove();
+    pivotMarker.remove();
   };
 }
 
@@ -257,20 +337,19 @@ function pushPullEdge(
   setFootprintFromMetres(buildingId, moved, anchor);
 }
 
-function rotateBuilding(
+function rotateBuildingAround(
   buildingId: string,
   anchor: LngLat,
   initialVertsM: XY[],
+  pivot: XY,
   deltaRad: number,
 ): void {
   const c = Math.cos(deltaRad);
   const s = Math.sin(deltaRad);
-  const cx = avg(initialVertsM.map((v) => v[0]));
-  const cy = avg(initialVertsM.map((v) => v[1]));
   const rotated = initialVertsM.map(([x, y]) => {
-    const dx = x - cx;
-    const dy = y - cy;
-    return [cx + dx * c - dy * s, cy + dx * s + dy * c] as XY;
+    const dx = x - pivot[0];
+    const dy = y - pivot[1];
+    return [pivot[0] + dx * c - dy * s, pivot[1] + dx * s + dy * c] as XY;
   });
   setFootprintFromMetres(buildingId, rotated, anchor);
 }

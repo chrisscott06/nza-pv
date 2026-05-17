@@ -693,6 +693,26 @@ a:hover {
   background: #fff;
 }
 
+.edit-handle.pivot {
+  width: 22px;
+  height: 22px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: var(--c-accent-hot);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+  cursor: grab;
+}
+.edit-handle.pivot svg {
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+}
+.edit-handle.pivot:hover {
+  color: #fff;
+  transform: scale(1.15);
+}
+
 /* 3D scene overlay */
 .scene-root {
   position: absolute;
