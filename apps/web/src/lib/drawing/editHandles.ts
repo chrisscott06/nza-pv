@@ -27,6 +27,11 @@ const ROTATE_ARROW_SVG = `
   <path d='M19 16a7 7 0 0 1-12 2.5l-2 2v-6h6l-2.5 2.5A5 5 0 0 0 17 16z' fill='currentColor'/>
 </svg>`.trim();
 
+const MOVE_ARROWS_SVG = `
+<svg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'>
+  <path d='M12 2 L8 6 L10.5 6 L10.5 10.5 L6 10.5 L6 8 L2 12 L6 16 L6 13.5 L10.5 13.5 L10.5 18 L8 18 L12 22 L16 18 L13.5 18 L13.5 13.5 L18 13.5 L18 16 L22 12 L18 8 L18 10.5 L13.5 10.5 L13.5 6 L16 6 Z' fill='currentColor'/>
+</svg>`.trim();
+
 function makeEdgeEl(): HTMLDivElement {
   const el = document.createElement('div');
   el.className = 'edit-handle edge';
@@ -37,6 +42,13 @@ function makeCornerEl(): HTMLDivElement {
   const el = document.createElement('div');
   el.className = 'edit-handle corner';
   el.innerHTML = ROTATE_ARROW_SVG;
+  return el;
+}
+
+function makeMoveEl(): HTMLDivElement {
+  const el = document.createElement('div');
+  el.className = 'edit-handle move';
+  el.innerHTML = MOVE_ARROWS_SVG;
   return el;
 }
 
@@ -54,7 +66,7 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
   const anchor = polygonCentroidLngLat(building.footprint);
 
   // Track which marker (if any) the user is currently dragging so syncs skip it.
-  let activeIndex: { kind: 'edge' | 'corner'; index: number } | null = null;
+  let activeIndex: { kind: 'edge' | 'corner' | 'move'; index: number } | null = null;
 
   // ---- Edge midpoint markers (push-pull) -----------------------------------
   const edgeMarkers: maplibregl.Marker[] = [];
@@ -132,11 +144,46 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
     });
   }
 
+  // ---- Move handle (centre of building) ------------------------------------
+  const moveEl = makeMoveEl();
+  const moveMarker = new maplibregl.Marker({ element: moveEl, draggable: true, anchor: 'center' })
+    .setLngLat([0, 0])
+    .addTo(map);
+
+  let moveInitialVerts: XY[] = [];
+  let moveInitialMarkerM: XY = [0, 0];
+  moveMarker.on('dragstart', () => {
+    activeIndex = { kind: 'move', index: 0 };
+    map.getCanvas().style.cursor = 'grabbing';
+    const b = currentBuilding(building.id);
+    if (!b) return;
+    moveInitialVerts = polygonRingToMeters(b.footprint, anchor);
+    const here = moveMarker.getLngLat();
+    moveInitialMarkerM = lngLatToMeters([here.lng, here.lat], anchor);
+  });
+  moveMarker.on('drag', () => {
+    const here = moveMarker.getLngLat();
+    const hereM = lngLatToMeters([here.lng, here.lat], anchor);
+    const dx = hereM[0] - moveInitialMarkerM[0];
+    const dy = hereM[1] - moveInitialMarkerM[1];
+    const translated = moveInitialVerts.map(([x, y]) => [x + dx, y + dy] as XY);
+    setFootprintFromMetres(building.id, translated, anchor);
+    commitFaceRegen(building.id);
+    syncMarkers();
+  });
+  moveMarker.on('dragend', () => {
+    commitFaceRegen(building.id);
+    activeIndex = null;
+    map.getCanvas().style.cursor = '';
+    syncMarkers();
+  });
+
   /** Reposition every marker except the one the user is dragging. */
   function syncMarkers(): void {
     const b = currentBuilding(building.id);
     if (!b) return;
     const verts = polygonRingToMeters(b.footprint, anchor);
+    if (verts.length < 4) return;
     for (let i = 0; i < 4; i++) {
       if (!(activeIndex?.kind === 'corner' && activeIndex.index === i)) {
         cornerMarkers[i]?.setLngLat(metersToLngLat(verts[i]!, anchor));
@@ -148,6 +195,11 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
         edgeMarkers[i]?.setLngLat(metersToLngLat(mid, anchor));
       }
     }
+    if (activeIndex?.kind !== 'move') {
+      const cx = avg(verts.map((v) => v[0]));
+      const cy = avg(verts.map((v) => v[1]));
+      moveMarker.setLngLat(metersToLngLat([cx, cy], anchor));
+    }
   }
 
   syncMarkers();
@@ -155,6 +207,7 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
   return () => {
     for (const m of edgeMarkers) m.remove();
     for (const m of cornerMarkers) m.remove();
+    moveMarker.remove();
   };
 }
 

@@ -673,6 +673,26 @@ a:hover {
   pointer-events: none;
 }
 
+.edit-handle.move {
+  width: 26px;
+  height: 26px;
+  background: #f0ebe5;
+  border-radius: 50%;
+  color: #1b1411;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: move;
+}
+.edit-handle.move svg {
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+.edit-handle.move:hover {
+  background: #fff;
+}
+
 /* 3D scene overlay */
 .scene-root {
   position: absolute;
