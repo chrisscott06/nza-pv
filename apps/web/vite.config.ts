@@ -12,8 +12,11 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
-    strictPort: true,
+    // Honour PORT env var (so the Claude Preview harness can pick a free
+    // port when go.bat is already serving on 5173), but default to 5173 so
+    // `pnpm dev` stays predictable for humans.
+    port: Number.parseInt(process.env.PORT ?? '5173', 10),
+    strictPort: false,
   },
   test: {
     environment: 'jsdom',

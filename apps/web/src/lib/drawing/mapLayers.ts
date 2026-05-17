@@ -14,12 +14,12 @@ export type BuildingFeature = Feature<
 >;
 
 export function installLayers(map: maplibregl.Map): void {
-  // `addSource` throws if the style isn't loaded yet. Defer the whole install
-  // until then, so callers don't need to know about load timing.
-  if (!map.isStyleLoaded()) {
-    map.once('load', () => installLayers(map));
-    return;
-  }
+  // Caller is expected to wait for the map's `load` event before invoking
+  // us. `addSource` would throw if the style was still loading. We used to
+  // defer via `map.once('load', …)` here, but the recursion produced a
+  // deadlock with raster styles where `isStyleLoaded()` continues to return
+  // false even after the load event has fired and the listener will never
+  // re-fire (the `once` registration is consumed but its work was a no-op).
   if (map.getSource(BUILDINGS_SRC)) return;
   map.addSource(BUILDINGS_SRC, {
     type: 'geojson',
@@ -72,12 +72,8 @@ export function updateBuildings(
   buildings: Building[],
   selectedIds: Set<string>,
 ): void {
-  if (!map.isStyleLoaded()) {
-    map.once('load', () => updateBuildings(map, buildings, selectedIds));
-    return;
-  }
   const src = map.getSource(BUILDINGS_SRC) as maplibregl.GeoJSONSource | undefined;
-  if (!src) return;
+  if (!src) return; // MapView's `load` handler will retry with current state.
   const fc: FeatureCollection<Polygon> = {
     type: 'FeatureCollection',
     features: buildings.map((b) => ({

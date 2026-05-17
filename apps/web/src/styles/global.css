@@ -388,6 +388,10 @@ a:hover {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  /* Above the scene canvas so the toolbar / inspector are always clickable,
+     even in 3D mode where the WebGL canvas would otherwise capture every
+     pointer event in the viewport. */
+  z-index: 10;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
   grid-template-rows: auto 1fr auto;
@@ -823,21 +827,11 @@ a:hover {
   transform: scale(1.15);
 }
 
-/* Map underlay — always at the back so 3D buildings render over the
-   satellite imagery. */
-.map-underlay {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-}
-
-/* 3D scene overlay — transparent so the satellite map shows through. */
+/* 3D scene overlay */
 .scene-root {
   position: absolute;
   inset: 0;
-  z-index: 1;
-  background: transparent;
-  pointer-events: auto;
+  background: linear-gradient(180deg, #2a3540 0%, #18222b 50%, #0e1416 100%);
 }
 
 /* Compass widget in the 3D scene */

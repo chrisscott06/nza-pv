@@ -41,10 +41,11 @@ export function SceneView(): JSX.Element {
     <div className="scene-root">
       <Canvas
         shadows
-        gl={{ alpha: true, antialias: true }}
         camera={{ position: [50, 50, 70], fov: 45, near: 0.1, far: 5000 }}
       >
-        <hemisphereLight args={[0xdbe7f0, 0x1f261c, 0.6]} />
+        <color attach="background" args={['#1b242b']} />
+        <fog attach="fog" args={['#1b242b', 200, 600]} />
+        <hemisphereLight args={[0xdbe7f0, 0x1f261c, 0.55]} />
         <directionalLight
           position={[35, 80, 35]}
           intensity={1.05}
@@ -105,14 +106,11 @@ export function SceneView(): JSX.Element {
   );
 }
 
-/** Receives shadows as a soft dark overlay so the satellite map can show
- *  through everywhere else. Without `shadowMaterial` the plane would render
- *  as a solid colour and hide the underlay. */
 function Ground(): JSX.Element {
   return (
     <mesh receiveShadow position={[0, -0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
       <planeGeometry args={[2000, 2000]} />
-      <shadowMaterial opacity={0.45} />
+      <meshStandardMaterial color={0x2a3239} roughness={1} />
     </mesh>
   );
 }

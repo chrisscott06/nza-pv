@@ -16,7 +16,7 @@ import {
   rectanglePolygon,
   snapRightAngle,
 } from './geometry.js';
-import { featureAtPoint, installLayers, setDraft, updateBuildings } from './mapLayers.js';
+import { featureAtPoint, setDraft, updateBuildings } from './mapLayers.js';
 
 const DEFAULT_HEIGHT_M = 9;
 
@@ -35,10 +35,12 @@ export function useMapTools(mapRef: React.MutableRefObject<maplibregl.Map | null
   stateRef.current = { tool, buildings, selection };
 
   // Sync building features whenever the building list or selection changes.
+  // The layer install happens in MapView's `load` handler; we just push data.
+  // `updateBuildings` is a no-op until the source exists, so calls before
+  // load are safe to drop on the floor.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (!map.getSource('buildings')) installLayers(map);
     const selectedIds = new Set<string>();
     if (selection.kind === 'building' || selection.kind === 'face')
       selectedIds.add(selection.buildingId);
@@ -86,7 +88,8 @@ export function useMapTools(mapRef: React.MutableRefObject<maplibregl.Map | null
         return;
       }
       const map: maplibregl.Map = m;
-      installLayers(map);
+      // Layer install is owned by MapView's `load` handler — the binding loop
+      // here only needs the map for event listeners.
 
       // ---- Rectangle drag state ----
       let dragStart: LngLat | null = null;

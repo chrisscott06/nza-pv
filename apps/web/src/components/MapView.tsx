@@ -102,12 +102,12 @@ export function MapView(): JSX.Element {
     // if a slow tile server delays `load`.
     mapRef.current = map;
 
-    // Install the buildings/draft layers and push the *current* buildings from
-    // the store as soon as the style is ready. This guarantees the polygons
-    // appear on first paint even if `useMapTools`' deferred-once-load
-    // listeners fired with stale `[]` data.
+    // Install layers + push current store state when the map's style is
+    // ready. The `load` event is the authoritative signal here — `addSource`
+    // throws before it, and `isStyleLoaded()` lies after it for raster
+    // styles, so we just wait for the event.
     function onStyleReady(): void {
-      installLayers(map);
+      if (!map.getSource('buildings')) installLayers(map);
       const project = useProject.getState().project;
       const buildings = project?.buildings ?? [];
       const sel = useProject.getState().selection;
@@ -115,13 +115,17 @@ export function MapView(): JSX.Element {
       if (sel.kind === 'building' || sel.kind === 'face') selectedIds.add(sel.buildingId);
       if (sel.kind === 'multi') sel.buildingIds.forEach((id) => selectedIds.add(id));
       updateBuildings(map, buildings, selectedIds);
-      // Bump local state to force useMapTools' effect to re-evaluate now that
-      // the style is loaded — its own deferred listeners may have closed over
-      // an out-of-date `buildings` array.
+      // Bump local state so `useMapTools`' building-sync effect re-evaluates
+      // against the now-existing source.
       setStyleLoadedTick((n) => n + 1);
     }
-    if (map.isStyleLoaded()) onStyleReady();
-    else map.once('load', onStyleReady);
+    map.once('load', onStyleReady);
+    // If 'load' has already fired by the time we register (unlikely but
+    // possible during hot reload), `once` swallows the call silently — fall
+    // back to 'idle' which fires repeatedly until the map is idle.
+    map.once('idle', () => {
+      if (!map.getSource('buildings')) onStyleReady();
+    });
 
     return () => {
       mapRef.current = null;
