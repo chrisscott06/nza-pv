@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
+import { layoutPanels, type PanelQuad } from '../roof/panelLayout.js';
 
 // Pure white card. Ambient below is cranked to 0.95 so the dark side
 // of the building lands at ~95% brightness (≈ pure white) and the
@@ -31,6 +32,11 @@ const EDGE_OUTLINE = 0x141618;
 const EDGE_CREASE = 0x3a3d42;
 const OUTLINE_WIDTH_PX = 4;
 const CREASE_WIDTH_PX = 1.2;
+// Dark blue-grey for PV panel rectangles, like a real silicon module.
+// Lifted slightly above the face along the face normal to avoid z-
+// fighting with the roof surface (PANEL_LIFT_M).
+const PANEL_COLOR = 0x1f2c40;
+const PANEL_LIFT_M = 0.08;
 
 // Dedup tolerance for matching vertices across faces (in metres, ≈ 0.5 mm).
 const POS_QUANT = 2000;
@@ -154,6 +160,10 @@ export class RoofLayer {
     for (const b of buildings) {
       const draw = buildBuildingDraw(b, originLngLat, b.id === selectedId);
       if (!draw) continue;
+      // Per-building PV panel positions, collected across every
+      // eligible roof face. Merged into a single mesh below so we
+      // get one draw call per building instead of one per panel.
+      const buildingPanels: Array<{ panels: PanelQuad[]; normal: THREE.Vector3 }> = [];
       // Add mesh per face (walls + roof) so triangulation stays planar.
       // Tag each roof-face mesh with userData so the click-to-pick
       // raycaster can map a hit triangle back to its (building, face).
@@ -163,7 +173,19 @@ export class RoofLayer {
         mesh.userData.buildingId = b.id;
         if (part.faceId) mesh.userData.faceId = part.faceId;
         this.group.add(mesh);
+        // Lay PV panels on top of every PV-eligible roof face.
+        if (part.faceId) {
+          const face = b.faces.find((f) => f.id === part.faceId);
+          if (face?.is_pv_eligible) {
+            const panels = layoutPanels(face, part.ring);
+            if (panels.length > 0) {
+              buildingPanels.push({ panels, normal: part.normal });
+            }
+          }
+        }
       }
+      const panelMesh = makePanelsMesh(buildingPanels);
+      if (panelMesh) this.group.add(panelMesh);
       this.group.add(draw.silhouette);
       this.group.add(draw.crease);
       this.draws.push(draw);
@@ -484,6 +506,69 @@ function makePartMesh(part: FacePart, selected: boolean): THREE.Mesh | null {
   const mesh = new THREE.Mesh(geom, mat);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
+  return mesh;
+}
+
+/** Merge every panel quad from every PV-eligible face on a building
+ *  into a single mesh — one draw call per building's PV layout instead
+ *  of one per panel (a sawtooth with 5 bays can easily hit 250+
+ *  panels). Each quad is lifted PANEL_LIFT_M along its face normal to
+ *  prevent z-fighting with the roof surface underneath. */
+function makePanelsMesh(
+  buildings: Array<{ panels: PanelQuad[]; normal: THREE.Vector3 }>,
+): THREE.Mesh | null {
+  const positions: number[] = [];
+  for (const group of buildings) {
+    const n = group.normal;
+    for (const quad of group.panels) {
+      const [c1, c2, c3, c4] = quad.corners;
+      // Lift each corner along the face normal.
+      const o1 = c1.x + n.x * PANEL_LIFT_M;
+      const o1y = c1.y + n.y * PANEL_LIFT_M;
+      const o1z = c1.z + n.z * PANEL_LIFT_M;
+      const o2 = c2.x + n.x * PANEL_LIFT_M;
+      const o2y = c2.y + n.y * PANEL_LIFT_M;
+      const o2z = c2.z + n.z * PANEL_LIFT_M;
+      const o3 = c3.x + n.x * PANEL_LIFT_M;
+      const o3y = c3.y + n.y * PANEL_LIFT_M;
+      const o3z = c3.z + n.z * PANEL_LIFT_M;
+      const o4 = c4.x + n.x * PANEL_LIFT_M;
+      const o4y = c4.y + n.y * PANEL_LIFT_M;
+      const o4z = c4.z + n.z * PANEL_LIFT_M;
+      // Two triangles per quad (CCW from outside).
+      positions.push(
+        o1,
+        o1y,
+        o1z,
+        o2,
+        o2y,
+        o2z,
+        o3,
+        o3y,
+        o3z,
+        o1,
+        o1y,
+        o1z,
+        o3,
+        o3y,
+        o3z,
+        o4,
+        o4y,
+        o4z,
+      );
+    }
+  }
+  if (positions.length === 0) return null;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  g.computeVertexNormals();
+  const mat = new THREE.MeshLambertMaterial({
+    color: PANEL_COLOR,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(g, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = false;
   return mesh;
 }
 
