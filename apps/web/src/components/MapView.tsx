@@ -189,6 +189,7 @@ export function MapView(): JSX.Element {
             selection.kind === 'building' || selection.kind === 'face'
               ? selection.buildingId
               : null,
+            selection.kind === 'face' ? selection.faceId : null,
           );
         }
       } else {
@@ -213,13 +214,15 @@ export function MapView(): JSX.Element {
 
   // Push fresh roof geometry into the custom layer whenever the buildings or
   // selection change while we're in 3D. Cheap to call when there is no layer
-  // (it just no-ops).
+  // (it just no-ops). Face selection has to drive a rebuild too so the
+  // RoofLayer can dim non-selected faces and outline the selected one.
   useEffect(() => {
     const layer = roofLayerRef.current;
     if (!layer) return;
     const selectedId =
       selection.kind === 'building' || selection.kind === 'face' ? selection.buildingId : null;
-    layer.setBuildings(buildings, selectedId);
+    const selectedFaceId = selection.kind === 'face' ? selection.faceId : null;
+    layer.setBuildings(buildings, selectedId, selectedFaceId);
   }, [buildings, selection]);
 
   return <div ref={container} className="map-root" data-testid="map-root" />;

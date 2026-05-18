@@ -24,6 +24,16 @@ import { layoutPanels, type PanelQuad } from '../roof/panelLayout.js';
 // faintest tonal hint for 3D form. Selection swaps to pale sky blue.
 const BUILDING_COLOR = 0xffffff;
 const BUILDING_HIGHLIGHT = 0xd9e7f3;
+// Per-face selection: the picked face goes warm yellow, the building's
+// other faces (walls + other roof slopes) drop slightly so the eye
+// snaps to the picked one. Other buildings stay normal white.
+const FACE_HIGHLIGHT = 0xffe066;
+const FACE_DIMMED = 0xd5d5d5;
+// Bright gold stroke that traces the selected face's perimeter so the
+// user can tell at a glance which polygon they've picked. Renders on
+// top of the camera-based silhouette/crease lines.
+const FACE_OUTLINE_COLOR = 0xf2b500;
+const FACE_OUTLINE_WIDTH_PX = 5;
 // Outline near-black at a heavier 4 px so the building's silhouette
 // reads as a confident line against the satellite imagery. Creases
 // drop to a darker grey than before so internal ridges/hips show up
@@ -149,7 +159,11 @@ export class RoofLayer {
     this.renderer = undefined;
   }
 
-  setBuildings(buildings: Building[], selectedId: string | null): void {
+  setBuildings(
+    buildings: Building[],
+    selectedId: string | null,
+    selectedFaceId: string | null = null,
+  ): void {
     this.clearMeshes();
     if (buildings.length === 0) {
       this.origin = undefined;
@@ -160,15 +174,32 @@ export class RoofLayer {
     for (const b of buildings) {
       const draw = buildBuildingDraw(b, originLngLat, b.id === selectedId);
       if (!draw) continue;
+      const isSelectedBuilding = b.id === selectedId;
+      const hasFaceSel = isSelectedBuilding && selectedFaceId != null;
       // Per-building PV panel positions, collected across every
       // eligible roof face. Merged into a single mesh below so we
       // get one draw call per building instead of one per panel.
       const buildingPanels: Array<{ panels: PanelQuad[]; normal: THREE.Vector3 }> = [];
+      let selectedFacePart: FacePart | null = null;
       // Add mesh per face (walls + roof) so triangulation stays planar.
       // Tag each roof-face mesh with userData so the click-to-pick
       // raycaster can map a hit triangle back to its (building, face).
       for (const part of draw.parts) {
-        const mesh = makePartMesh(part, b.id === selectedId);
+        // Decide colour state for this part:
+        //   - face selected & this is THAT face → 'selected' (yellow)
+        //   - face selected & this is a different part → 'dimmed'
+        //   - building selected (no face) → 'building'
+        //   - otherwise → 'normal'
+        const isThisFace = hasFaceSel && part.faceId === selectedFaceId;
+        const state: PartColourState = isThisFace
+          ? 'selected'
+          : hasFaceSel
+            ? 'dimmed'
+            : isSelectedBuilding
+              ? 'building'
+              : 'normal';
+        if (isThisFace) selectedFacePart = part;
+        const mesh = makePartMesh(part, state);
         if (!mesh) continue;
         mesh.userData.buildingId = b.id;
         if (part.faceId) mesh.userData.faceId = part.faceId;
@@ -186,6 +217,16 @@ export class RoofLayer {
       }
       const panelMesh = makePanelsMesh(buildingPanels);
       if (panelMesh) this.group.add(panelMesh);
+      // Bright gold outline around the user's currently-picked face so
+      // they can see exactly which slope they've drilled into. Added
+      // last so it sits on top of meshes / panels / silhouette stroke.
+      // The render loop walks every LineSegments2 in the group to
+      // update the resolution uniform, so we don't need to register
+      // the material anywhere else.
+      if (selectedFacePart) {
+        const outline = makeFaceOutline(selectedFacePart);
+        if (outline) this.group.add(outline);
+      }
       this.group.add(draw.silhouette);
       this.group.add(draw.crease);
       this.draws.push(draw);
@@ -219,12 +260,16 @@ export class RoofLayer {
     );
     // Reclassify every edge for every building.
     for (const d of this.draws) this.updateOutlines(d);
-    // Update fat-line resolutions (canvas size can change on resize).
+    // Update fat-line resolutions on every LineSegments2 in the scene
+    // (silhouettes, creases, and the selected-face outline) — canvas
+    // size can change on resize and the resolution uniform is needed
+    // for screen-space line width.
     const canvas = this.map.getCanvas();
-    for (const d of this.draws) {
-      (d.silhouette.material as LineMaterial).resolution.set(canvas.width, canvas.height);
-      (d.crease.material as LineMaterial).resolution.set(canvas.width, canvas.height);
-    }
+    this.group.traverse((obj) => {
+      if (obj instanceof LineSegments2) {
+        (obj.material as LineMaterial).resolution.set(canvas.width, canvas.height);
+      }
+    });
     this.renderer.resetState();
     this.renderer.render(this.scene, this.camera);
   }
@@ -496,17 +541,58 @@ function buildWallFollowingProfile(
   return { ring, normal, isWall: true };
 }
 
-function makePartMesh(part: FacePart, selected: boolean): THREE.Mesh | null {
+/** Colour states for a single mesh face — drives the per-face highlight
+ *  + dim-other-faces UX when a face is picked. */
+type PartColourState = 'normal' | 'building' | 'selected' | 'dimmed';
+
+function colourFor(state: PartColourState): number {
+  switch (state) {
+    case 'selected':
+      return FACE_HIGHLIGHT;
+    case 'dimmed':
+      return FACE_DIMMED;
+    case 'building':
+      return BUILDING_HIGHLIGHT;
+    default:
+      return BUILDING_COLOR;
+  }
+}
+
+function makePartMesh(part: FacePart, state: PartColourState): THREE.Mesh | null {
   const geom = triangulatePlanarPolygon(part.ring);
   if (!geom) return null;
   const mat = new THREE.MeshLambertMaterial({
-    color: selected ? BUILDING_HIGHLIGHT : BUILDING_COLOR,
+    color: colourFor(state),
     side: THREE.DoubleSide,
   });
   const mesh = new THREE.Mesh(geom, mat);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
+}
+
+/** Bright gold outline tracing the selected face's polygon edges. Lifted
+ *  slightly along the face normal so it sits on top of the face mesh
+ *  (and any PV panel lifted by PANEL_LIFT_M). Uses LineSegments2 for
+ *  a proper thick stroke independent of WebGL's gl.lineWidth clamp. */
+function makeFaceOutline(part: FacePart): LineSegments2 | null {
+  if (part.ring.length < 3) return null;
+  // Lift the outline a bit further than panels so it always sits on top.
+  const lift = 0.12;
+  const positions: number[] = [];
+  for (let i = 0; i < part.ring.length; i++) {
+    const a = part.ring[i]!;
+    const b = part.ring[(i + 1) % part.ring.length]!;
+    positions.push(
+      a.x + part.normal.x * lift,
+      a.y + part.normal.y * lift,
+      a.z + part.normal.z * lift,
+      b.x + part.normal.x * lift,
+      b.y + part.normal.y * lift,
+      b.z + part.normal.z * lift,
+    );
+  }
+  return makeFatLine(positions, FACE_OUTLINE_COLOR, FACE_OUTLINE_WIDTH_PX);
 }
 
 /** Merge every panel quad from every PV-eligible face on a building
