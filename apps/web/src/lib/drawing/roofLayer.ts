@@ -15,12 +15,13 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 
-// Bright off-white architect-card base — nearly pure white with the
-// faintest warmth so the building doesn't read as cold industrial.
-// The ambient is pushed up and the directional dropped a touch so
-// even shaded faces hold a light cream-white rather than dropping
-// into mid-grey. Selection swaps to a subtle pale sky blue.
-const BUILDING_COLOR = 0xfcfbf6;
+// Near-pure-white paper-card base. Ambient below sits high (0.85)
+// so even shaded faces stay at >95% brightness — the building reads
+// as close-to-white with only the faintest tonal accent for shading,
+// the way a printed-paper architectural massing model looks. The
+// directional sun is reduced to a soft accent rather than a hard
+// contrast. Selection swaps to a subtle pale sky blue.
+const BUILDING_COLOR = 0xfdfdfa;
 const BUILDING_HIGHLIGHT = 0xd9e7f3;
 // Outline near-black at a heavier 4 px so the building's silhouette
 // reads as a confident line against the satellite imagery. Creases
@@ -97,12 +98,14 @@ export class RoofLayer {
     // the building pick up subtle shading that grounds the model.
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    // High ambient + softer directional sun so even the shaded faces
-    // stay bright cream-white rather than dropping into mid-grey.
-    // Lights carry the faintest warm tint to match the base; the
-    // opposite-side fill keeps the deepest shadow from going flat.
-    const ambient = new THREE.AmbientLight(0xfffbf3, 0.7);
-    const sun = new THREE.DirectionalLight(0xffffff, 0.55);
+    // Very high ambient so every face starts at ~85% brightness —
+    // shaded faces never drop into grey. The directional sun adds a
+    // soft 0.4 accent on lit faces (clamped to 1.0 = pure white),
+    // and the opposite-side fill brings the deepest shadow up to
+    // near-white as well. Net result: building reads as close-to-
+    // white with the faintest shading rather than a grey block.
+    const ambient = new THREE.AmbientLight(0xffffff, 0.85);
+    const sun = new THREE.DirectionalLight(0xffffff, 0.4);
     sun.position.set(40, 80, 60);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -113,7 +116,7 @@ export class RoofLayer {
     sun.shadow.camera.top = 150;
     sun.shadow.camera.bottom = -150;
     sun.shadow.bias = -0.0005;
-    const fill = new THREE.DirectionalLight(0xfffdf8, 0.18);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.22);
     fill.position.set(-50, -40, 30);
     this.scene.add(ambient);
     this.scene.add(sun);
