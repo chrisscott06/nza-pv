@@ -18,9 +18,12 @@ import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeome
 // Warm near-white architect-card base. Combined with a higher ambient
 // and slightly warm ambient tint below, lit faces hold near-white,
 // shaded faces drop to a warm cream-grey rather than industrial cold
-// grey. Selection swaps to active blue so it pops against the white.
+// grey. Selection swaps to a subtle pale sky blue that's similarly
+// light to the off-white so it shades the same way under the
+// directional sun — the building just turns a soft blue rather than
+// flashing a saturated colour at you.
 const BUILDING_COLOR = 0xfaf6ec;
-const BUILDING_HIGHLIGHT = 0x4a90e2;
+const BUILDING_HIGHLIGHT = 0xd9e7f3;
 // Outline near-black at a heavier 4 px so the building's silhouette
 // reads as a confident line against the satellite imagery. Creases
 // drop to a darker grey than before so internal ridges/hips show up
