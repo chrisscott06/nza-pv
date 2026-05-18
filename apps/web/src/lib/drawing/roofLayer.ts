@@ -15,13 +15,13 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 
-// Near-pure-white paper-card base. Ambient below sits high (0.85)
-// so even shaded faces stay at >95% brightness — the building reads
-// as close-to-white with only the faintest tonal accent for shading,
-// the way a printed-paper architectural massing model looks. The
-// directional sun is reduced to a soft accent rather than a hard
-// contrast. Selection swaps to a subtle pale sky blue.
-const BUILDING_COLOR = 0xfdfdfa;
+// Pure white card. Ambient below is cranked to 0.95 so the dark side
+// of the building lands at ~95% brightness (≈ pure white) and the
+// directional sun adds only a 0.18 accent on lit faces. Even the
+// darkest face is well above the threshold where the eye reads
+// "grey" — the building shows mostly as pure white with only the
+// faintest tonal hint for 3D form. Selection swaps to pale sky blue.
+const BUILDING_COLOR = 0xffffff;
 const BUILDING_HIGHLIGHT = 0xd9e7f3;
 // Outline near-black at a heavier 4 px so the building's silhouette
 // reads as a confident line against the satellite imagery. Creases
@@ -98,14 +98,14 @@ export class RoofLayer {
     // the building pick up subtle shading that grounds the model.
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    // Very high ambient so every face starts at ~85% brightness —
-    // shaded faces never drop into grey. The directional sun adds a
-    // soft 0.4 accent on lit faces (clamped to 1.0 = pure white),
-    // and the opposite-side fill brings the deepest shadow up to
-    // near-white as well. Net result: building reads as close-to-
-    // white with the faintest shading rather than a grey block.
-    const ambient = new THREE.AmbientLight(0xffffff, 0.85);
-    const sun = new THREE.DirectionalLight(0xffffff, 0.4);
+    // Pure-white look. Ambient at 0.95 lifts every face — including
+    // the side facing away from the sun — to ≈95% of pure white.
+    // The directional sun adds only a 0.18 accent on lit faces (so
+    // they reach pure white), and the opposite-side fill is a tiny
+    // 0.05 nudge. Net: the building reads as white card with only
+    // the faintest tonal hint for 3D form.
+    const ambient = new THREE.AmbientLight(0xffffff, 0.95);
+    const sun = new THREE.DirectionalLight(0xffffff, 0.18);
     sun.position.set(40, 80, 60);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -116,7 +116,7 @@ export class RoofLayer {
     sun.shadow.camera.top = 150;
     sun.shadow.camera.bottom = -150;
     sun.shadow.bias = -0.0005;
-    const fill = new THREE.DirectionalLight(0xffffff, 0.22);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.05);
     fill.position.set(-50, -40, 30);
     this.scene.add(ambient);
     this.scene.add(sun);
