@@ -1,6 +1,6 @@
 // Inspector panel — contextual on the current selection.
 
-import { PANEL_PRESETS, type RoofFace, summarisePv } from '@nza-pv/shared';
+import { PANEL_PRESETS, type RoofFace, summarisePv, summariseFaces } from '@nza-pv/shared';
 import { useState } from 'react';
 import { useShallow } from 'zustand/shallow';
 import { regenerateFaces } from '../lib/roof/regenerate.js';
@@ -354,7 +354,40 @@ function FacesList({
             );
           })}
         </tbody>
+        <FacesListTotals faces={faces} />
       </table>
     </div>
+  );
+}
+
+/** Footer row summarising every face on the building so the user can see
+ *  the rollup without flipping to the PV step. Wrapped in its own tfoot
+ *  so changing a face's coverage / eligibility refreshes only the totals
+ *  cell content, not the whole table. */
+function FacesListTotals({ faces }: { faces: RoofFace[] }): JSX.Element {
+  const total = summariseFaces(faces);
+  return (
+    <tfoot>
+      <tr style={{ background: 'rgba(126, 201, 138, 0.06)' }}>
+        <td />
+        <td style={{ fontWeight: 600 }}>Total</td>
+        <td />
+        <td />
+        <td className="tabular" style={{ textAlign: 'right', fontWeight: 600 }}>
+          {total.nominal_kwp.toFixed(1)} kWp
+        </td>
+      </tr>
+      <tr style={{ background: 'rgba(126, 201, 138, 0.06)' }}>
+        <td />
+        <td className="muted" style={{ fontSize: 11 }}>
+          Annual yield
+        </td>
+        <td />
+        <td />
+        <td className="tabular muted" style={{ textAlign: 'right', fontSize: 11 }}>
+          {total.annual_kwh.toLocaleString()} kWh
+        </td>
+      </tr>
+    </tfoot>
   );
 }

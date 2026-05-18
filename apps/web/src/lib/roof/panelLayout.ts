@@ -78,7 +78,17 @@ export function layoutPanels(
   const portrait = tileRect(minU, maxU, minV, maxV, panelH, panelW, PANEL_GAP_M, uv);
   const best = landscape.length >= portrait.length ? landscape : portrait;
 
-  return best.map((q) => ({
+  // Honour the face's max_coverage_pct: the grid above is the densest
+  // packing that fits, but the user's coverage slider expresses how much
+  // of that they actually want to install (accounting for inverter
+  // capacity, setbacks, walkways, future expansion). Match the panel
+  // count summarisePv reports — so the kWp/kWh figures in the inspector
+  // always match what's on screen.
+  const coverage = Math.max(0, Math.min(100, face.max_coverage_pct ?? 70)) / 100;
+  const targetCount = Math.floor((face.area_m2 * coverage) / area);
+  const limited = best.slice(0, targetCount);
+
+  return limited.map((q) => ({
     corners: [
       uvTo3D(origin, u, v, q.uStart, q.vStart),
       uvTo3D(origin, u, v, q.uEnd, q.vStart),
