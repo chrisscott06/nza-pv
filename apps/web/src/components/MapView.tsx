@@ -1,7 +1,7 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import maplibregl, { type StyleSpecification } from 'maplibre-gl';
 import { useEffect, useRef, useState } from 'react';
-import { setActiveMap } from '../lib/drawing/mapBridge.js';
+import { setActiveMap, setActiveRoofLayer } from '../lib/drawing/mapBridge.js';
 import {
   installLayers,
   setExtrusionVisible,
@@ -178,6 +178,7 @@ export function MapView(): JSX.Element {
         if (!roofLayerRef.current) {
           const layer = new RoofLayer();
           roofLayerRef.current = layer;
+          setActiveRoofLayer(layer);
           if (!map.getLayer(layer.id)) {
             // The maplibre type for `addLayer` doesn't strictly include the
             // CustomLayerInterface shape; the runtime supports it fine.
@@ -200,6 +201,7 @@ export function MapView(): JSX.Element {
           map.removeLayer(roofLayerRef.current.id);
         }
         roofLayerRef.current = null;
+        setActiveRoofLayer(null);
       }
     };
     if (map.getLayer('buildings-extrusion')) apply();

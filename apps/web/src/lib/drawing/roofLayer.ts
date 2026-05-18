@@ -46,6 +46,10 @@ type FacePart = {
   ring: THREE.Vector3[];
   normal: THREE.Vector3;
   isWall: boolean;
+  /** Only roof faces carry a faceId — walls and triangle infills don't.
+   *  Used to tag the rendered mesh so click-to-pick raycasting can map a
+   *  hit triangle back to the selectable face in the inspector. */
+  faceId?: string;
 };
 
 /** An undirected edge with the (1 or 2) adjacent face indices that share
@@ -151,9 +155,14 @@ export class RoofLayer {
       const draw = buildBuildingDraw(b, originLngLat, b.id === selectedId);
       if (!draw) continue;
       // Add mesh per face (walls + roof) so triangulation stays planar.
+      // Tag each roof-face mesh with userData so the click-to-pick
+      // raycaster can map a hit triangle back to its (building, face).
       for (const part of draw.parts) {
         const mesh = makePartMesh(part, b.id === selectedId);
-        if (mesh) this.group.add(mesh);
+        if (!mesh) continue;
+        mesh.userData.buildingId = b.id;
+        if (part.faceId) mesh.userData.faceId = part.faceId;
+        this.group.add(mesh);
       }
       this.group.add(draw.silhouette);
       this.group.add(draw.crease);
@@ -242,6 +251,42 @@ export class RoofLayer {
     setFatLineGeometry(d.crease, crease);
   }
 
+  /** Cast a ray from a screen-pixel click through the scene and return
+   *  the first roof-face mesh it hits. Walls and infill triangles are
+   *  skipped (they don't carry a faceId), so a click on a wall passes
+   *  through to the maplibre `buildings-fill` selection layer below.
+   *
+   *  Our camera is a single PV-style matrix (no separate viewMatrix),
+   *  so we can't just `raycaster.setFromCamera()`. Instead we unproject
+   *  the NDC near + far points by the projection matrix's inverse and
+   *  use them as the ray origin / direction directly. */
+  pickFaceAt(clickX: number, clickY: number): { buildingId: string; faceId: string } | null {
+    if (!this.map || this.draws.length === 0) return null;
+    const canvas = this.map.getCanvas();
+    const w = canvas.clientWidth || canvas.width;
+    const h = canvas.clientHeight || canvas.height;
+    const ndcX = (clickX / w) * 2 - 1;
+    const ndcY = -(clickY / h) * 2 + 1;
+    const projInv = new THREE.Matrix4().copy(this.camera.projectionMatrix).invert();
+    const near = new THREE.Vector3(ndcX, ndcY, -1).applyMatrix4(projInv);
+    const far = new THREE.Vector3(ndcX, ndcY, 1).applyMatrix4(projInv);
+    const dir = new THREE.Vector3().subVectors(far, near).normalize();
+    const raycaster = new THREE.Raycaster(near, dir);
+    raycaster.far = far.distanceTo(near);
+    const meshes: THREE.Object3D[] = [];
+    this.group.traverse((o) => {
+      if (o instanceof THREE.Mesh && o.userData.faceId) meshes.push(o);
+    });
+    if (meshes.length === 0) return null;
+    const hits = raycaster.intersectObjects(meshes, false);
+    if (hits.length === 0) return null;
+    const m = hits[0]!.object;
+    return {
+      buildingId: m.userData.buildingId as string,
+      faceId: m.userData.faceId as string,
+    };
+  }
+
   private clearMeshes(): void {
     this.group.traverse((obj) => {
       if (
@@ -312,7 +357,7 @@ function buildBuildingDraw(
     }
     const normal = polygonNormal(verts);
     if (!normal) continue;
-    roofParts.push({ ring: verts, normal, isWall: false });
+    roofParts.push({ ring: verts, normal, isWall: false, faceId: face.id });
   }
 
   // 2) Build wall faces whose TOP edges follow the actual roof profile

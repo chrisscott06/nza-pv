@@ -16,6 +16,7 @@ import {
   rectanglePolygon,
   snapRightAngle,
 } from './geometry.js';
+import { getActiveRoofLayer } from './mapBridge.js';
 import { featureAtPoint, setDraft, updateBuildings } from './mapLayers.js';
 
 const DEFAULT_HEIGHT_M = 9;
@@ -173,6 +174,23 @@ export function useMapTools(mapRef: React.MutableRefObject<maplibregl.Map | null
       function onClick(e: maplibregl.MapMouseEvent): void {
         const { tool: t } = stateRef.current;
         if (t.kind === 'select') {
+          // In 3D, try raycasting against roof-face meshes first so a
+          // click on a sloped face opens the per-face inspector (with
+          // area m², tilt, azimuth, PV summary). The maplibre fill
+          // query below is footprint-only and would otherwise just
+          // re-select the whole building.
+          const roofLayer = getActiveRoofLayer();
+          if (roofLayer) {
+            const faceHit = roofLayer.pickFaceAt(e.point.x, e.point.y);
+            if (faceHit) {
+              select({
+                kind: 'face',
+                buildingId: faceHit.buildingId,
+                faceId: faceHit.faceId,
+              });
+              return;
+            }
+          }
           const hit = featureAtPoint(map, e.point);
           if (hit) {
             const id = hit.properties.id;

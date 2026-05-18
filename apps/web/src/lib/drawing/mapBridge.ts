@@ -6,11 +6,24 @@
 
 import { type Building, polygonCentroidLngLat } from '@nza-pv/shared';
 import type maplibregl from 'maplibre-gl';
+import type { RoofLayer } from './roofLayer.js';
 
 let active: maplibregl.Map | null = null;
+let activeRoofLayer: RoofLayer | null = null;
 
 export function setActiveMap(map: maplibregl.Map | null): void {
   active = map;
+}
+
+/** MapView calls this whenever the RoofLayer is mounted (3D mode) or
+ *  unmounted (2D mode). Click handlers in useMapTools use it to raycast
+ *  against roof-face meshes before falling back to building selection. */
+export function setActiveRoofLayer(layer: RoofLayer | null): void {
+  activeRoofLayer = layer;
+}
+
+export function getActiveRoofLayer(): RoofLayer | null {
+  return activeRoofLayer;
 }
 
 /** Centre the camera on a building. Keeps the user's current pitch / bearing
