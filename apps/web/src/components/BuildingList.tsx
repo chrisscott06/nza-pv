@@ -1,3 +1,4 @@
+import { summariseFaces } from '@nza-pv/shared';
 import { useState } from 'react';
 import { flyToBuilding } from '../lib/drawing/mapBridge.js';
 import { useProject } from '../store/projectStore.js';
@@ -62,11 +63,24 @@ export function BuildingList(): JSX.Element {
               <div className="meta">
                 {b.eave_height_m.toFixed(1)} m · {b.roof.style}
               </div>
+              {b.faces.length > 0 ? <BuildingPvLine faces={b.faces} /> : null}
             </div>
             <div className="meta tabular">{b.faces.length || '—'}</div>
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function BuildingPvLine({
+  faces,
+}: { faces: Parameters<typeof summariseFaces>[0] }): JSX.Element | null {
+  const pv = summariseFaces(faces);
+  if (pv.nominal_kwp <= 0) return null;
+  return (
+    <div className="meta" style={{ fontSize: 11 }}>
+      {pv.nominal_kwp.toFixed(1)} kWp · {pv.annual_kwh.toLocaleString()} kWh/yr
     </div>
   );
 }

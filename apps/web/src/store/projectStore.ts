@@ -26,6 +26,11 @@ export type ToolMode =
 
 export type ViewMode = '2d' | '3d' | 'split';
 
+/** Which top-level workspace step the user is on. Drives the right-hand
+ *  panel content (building edit vs. project-wide PV summary vs. future
+ *  report). Maps to the LeftRail steps. */
+export type WorkspaceView = 'buildings' | 'pv';
+
 export type Selection =
   | { kind: 'none' }
   | { kind: 'building'; buildingId: string }
@@ -43,6 +48,7 @@ type State = {
   selection: Selection;
   tool: ToolMode;
   view: ViewMode;
+  workspaceView: WorkspaceView;
   lastSavedAt: number | null;
   /** Stash of face-level overrides keyed by `${buildingId}|${role}|${cardinal}`
    *  so they persist across compatible roof preset changes. */
@@ -61,6 +67,7 @@ type Actions = {
 
   setTool: (tool: ToolMode) => void;
   setView: (view: ViewMode) => void;
+  setWorkspaceView: (v: WorkspaceView) => void;
   select: (selection: Selection) => void;
 
   addBuilding: (
@@ -129,6 +136,7 @@ export const useProject = create<ProjectStore>((set, get) => ({
   selection: { kind: 'none' },
   tool: { kind: 'select' },
   view: '2d',
+  workspaceView: 'buildings',
   lastSavedAt: null,
   faceOverrides: {},
   past: [],
@@ -140,6 +148,7 @@ export const useProject = create<ProjectStore>((set, get) => ({
       selection: { kind: 'none' },
       tool: { kind: 'select' },
       view: '2d',
+      workspaceView: 'buildings',
       lastSavedAt: null,
       faceOverrides: {},
       past: [],
@@ -154,6 +163,7 @@ export const useProject = create<ProjectStore>((set, get) => ({
       selection: { kind: 'none' },
       tool: { kind: 'select' },
       view: '2d',
+      workspaceView: 'buildings',
       lastSavedAt: Date.now(),
       faceOverrides: {},
       past: [],
@@ -195,6 +205,7 @@ export const useProject = create<ProjectStore>((set, get) => ({
 
   setTool: (tool) => set({ tool }),
   setView: (view) => set({ view }),
+  setWorkspaceView: (workspaceView) => set({ workspaceView }),
   select: (selection) => set({ selection }),
 
   addBuilding: (b) => {

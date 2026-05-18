@@ -7,6 +7,7 @@ import { BuildingList } from './BuildingList.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 import { InspectorPanel } from './InspectorPanel.js';
 import { MapView } from './MapView.js';
+import { PvPanel } from './PvPanel.js';
 import { Toolbar } from './Toolbar.js';
 
 type SidePanelTab = 'buildings' | 'inspector';
@@ -19,6 +20,7 @@ export function Workspace(): JSX.Element {
   const redo = useProject((s) => s.redo);
   const select = useProject((s) => s.select);
   const selection = useProject((s) => s.selection);
+  const workspaceView = useProject((s) => s.workspaceView);
 
   // Side panel tabs — auto-switch to Inspector when a building / face is
   // selected, and back to Buildings on deselect, so the user doesn't have
@@ -71,41 +73,51 @@ export function Workspace(): JSX.Element {
       <div className="map-overlays">
         <Toolbar />
         <div className="side-panel">
-          <div className="side-panel-tabs" role="tablist" aria-label="Side panel">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === 'buildings'}
-              className={`side-panel-tab ${tab === 'buildings' ? 'active' : ''}`}
-              onClick={() => setTab('buildings')}
-            >
-              Buildings
-              {project?.buildings.length ? (
-                <span className="tab-count">{project.buildings.length}</span>
-              ) : null}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === 'inspector'}
-              className={`side-panel-tab ${tab === 'inspector' ? 'active' : ''}`}
-              onClick={() => setTab('inspector')}
-              disabled={selection.kind === 'none'}
-              title={selection.kind === 'none' ? 'Select a building to inspect' : 'Inspector'}
-            >
-              Inspector
-            </button>
-          </div>
-          {tab === 'buildings' ? (
+          {workspaceView === 'pv' ? (
             <section className="section" style={{ flex: 1, overflowY: 'auto' }}>
-              <BuildingList />
-            </section>
-          ) : (
-            <section className="section" style={{ flex: 1, overflowY: 'auto' }}>
-              <ErrorBoundary label="Inspector">
-                <InspectorPanel />
+              <ErrorBoundary label="PV summary">
+                <PvPanel />
               </ErrorBoundary>
             </section>
+          ) : (
+            <>
+              <div className="side-panel-tabs" role="tablist" aria-label="Side panel">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === 'buildings'}
+                  className={`side-panel-tab ${tab === 'buildings' ? 'active' : ''}`}
+                  onClick={() => setTab('buildings')}
+                >
+                  Buildings
+                  {project?.buildings.length ? (
+                    <span className="tab-count">{project.buildings.length}</span>
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === 'inspector'}
+                  className={`side-panel-tab ${tab === 'inspector' ? 'active' : ''}`}
+                  onClick={() => setTab('inspector')}
+                  disabled={selection.kind === 'none'}
+                  title={selection.kind === 'none' ? 'Select a building to inspect' : 'Inspector'}
+                >
+                  Inspector
+                </button>
+              </div>
+              {tab === 'buildings' ? (
+                <section className="section" style={{ flex: 1, overflowY: 'auto' }}>
+                  <BuildingList />
+                </section>
+              ) : (
+                <section className="section" style={{ flex: 1, overflowY: 'auto' }}>
+                  <ErrorBoundary label="Inspector">
+                    <InspectorPanel />
+                  </ErrorBoundary>
+                </section>
+              )}
+            </>
           )}
         </div>
       </div>

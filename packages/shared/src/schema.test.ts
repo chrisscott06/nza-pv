@@ -12,6 +12,7 @@ import {
   polygonRingToMeters,
   polygonTiltDeg,
   summarisePv,
+  summariseFaces,
 } from './index.js';
 
 describe('schema', () => {
@@ -135,5 +136,64 @@ describe('pv', () => {
     });
     expect(summary.panel_count).toBe(0);
     expect(summary.nominal_kwp).toBe(0);
+    expect(summary.annual_kwh).toBe(0);
+  });
+
+  it('south-facing 30° face yields close to the UK baseline', () => {
+    const summary = summarisePv({
+      id: 'f1',
+      role: 'main',
+      cardinal: 'S',
+      geometry: { type: 'Polygon', coordinates: [[]] },
+      area_m2: 100,
+      tilt_deg: 30,
+      azimuth_deg: 180,
+      is_pv_eligible: true,
+      max_coverage_pct: 70,
+      panel_size_m2: 1.95,
+    });
+    // South + ~optimal tilt: tilt factor ~0.975, az factor ~1.0 →
+    // ~14 kWp × 950 × 0.975 × 1.0 ≈ 12,900 kWh. Allow ±15% tolerance
+    // since the placeholder yield model is intentionally rough.
+    expect(summary.annual_kwh).toBeGreaterThan(11000);
+    expect(summary.annual_kwh).toBeLessThan(14500);
+  });
+
+  it('north-facing face generates noticeably less than south-facing', () => {
+    const base = {
+      id: 'f1',
+      role: 'main' as const,
+      geometry: { type: 'Polygon' as const, coordinates: [[]] },
+      area_m2: 100,
+      tilt_deg: 30,
+      is_pv_eligible: true,
+      max_coverage_pct: 70,
+      panel_size_m2: 1.95,
+    };
+    const south = summarisePv({ ...base, cardinal: 'S', azimuth_deg: 180 });
+    const north = summarisePv({ ...base, cardinal: 'N', azimuth_deg: 0 });
+    expect(north.annual_kwh).toBeLessThan(south.annual_kwh);
+    expect(north.annual_kwh).toBeGreaterThan(0);
+  });
+
+  it('summariseFaces aggregates kWp / kWh / panels across faces', () => {
+    const f = (cardinal: 'S' | 'N', azimuth_deg: number) => ({
+      id: cardinal,
+      role: 'main' as const,
+      cardinal,
+      geometry: { type: 'Polygon' as const, coordinates: [[]] },
+      area_m2: 50,
+      tilt_deg: 30,
+      azimuth_deg,
+      is_pv_eligible: true,
+      max_coverage_pct: 70,
+      panel_size_m2: 1.95,
+    });
+    const a = summarisePv(f('S', 180));
+    const b = summarisePv(f('N', 0));
+    const total = summariseFaces([f('S', 180), f('N', 0)]);
+    expect(total.panel_count).toBe(a.panel_count + b.panel_count);
+    expect(total.nominal_kwp).toBeCloseTo(a.nominal_kwp + b.nominal_kwp, 1);
+    expect(total.annual_kwh).toBe(a.annual_kwh + b.annual_kwh);
   });
 });

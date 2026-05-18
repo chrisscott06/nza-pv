@@ -209,22 +209,63 @@ a:hover {
   padding: 8px 4px;
   margin: 0 var(--s-2);
   border-radius: var(--radius);
+  background: transparent;
+  border: 0;
   color: var(--c-text-muted);
   user-select: none;
-  cursor: not-allowed;
+  cursor: pointer;
   font-size: 11px;
+  font-family: inherit;
+}
+.left-rail .step.soon {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 .left-rail .step.active {
   color: var(--c-accent-hot);
+  background: rgba(126, 201, 138, 0.12);
+}
+.left-rail .step:not(.soon):hover {
   background: rgba(126, 201, 138, 0.08);
-  cursor: pointer;
 }
 .left-rail .step.active:hover {
-  background: rgba(126, 201, 138, 0.16);
+  background: rgba(126, 201, 138, 0.18);
 }
 .left-rail .step .glyph {
   font-size: 18px;
   line-height: 1;
+}
+
+.pv-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--s-1);
+  margin-top: var(--s-1);
+}
+.pv-stat {
+  background: var(--c-panel-2, rgba(255, 255, 255, 0.04));
+  padding: 8px 10px;
+  border-radius: var(--radius);
+}
+.pv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.pv-table th,
+.pv-table td {
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--c-border);
+}
+.pv-table th {
+  color: var(--c-text-dim);
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.pv-table tbody tr:hover {
+  background: rgba(126, 201, 138, 0.06);
 }
 
 .main {
@@ -749,7 +790,7 @@ a:hover {
   filter: brightness(0) invert(1);
 }
 .maplibregl-ctrl-group button.maplibregl-ctrl-compass::after {
-  content: 'N';
+  content: "N";
   position: absolute;
   top: -2px;
   left: 50%;
@@ -937,7 +978,7 @@ a:hover {
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.5));
 }
 .scene-compass .dial .needle::after {
-  content: '';
+  content: "";
   position: absolute;
   top: 18px;
   left: 50%;

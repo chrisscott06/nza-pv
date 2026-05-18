@@ -107,6 +107,7 @@ export function InspectorPanel(): JSX.Element {
         <ReadOnlyRow label="Usable area" value={`${pv.usable_area_m2} m²`} />
         <ReadOnlyRow label="Panel count" value={`${pv.panel_count}`} />
         <ReadOnlyRow label="Nominal" value={`${pv.nominal_kwp} kWp`} />
+        <ReadOnlyRow label="Est. annual" value={`${pv.annual_kwh.toLocaleString()} kWh`} />
 
         <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
           <button
