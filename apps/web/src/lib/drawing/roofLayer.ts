@@ -15,10 +15,11 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 
-// Near-white architect-render base — lit faces hold a clean off-white,
-// shaded faces drop into a soft pale grey under the directional sun.
-// Selection swaps to active blue so it pops against the white.
-const BUILDING_COLOR = 0xf6f3ee;
+// Warm near-white architect-card base. Combined with a higher ambient
+// and slightly warm ambient tint below, lit faces hold near-white,
+// shaded faces drop to a warm cream-grey rather than industrial cold
+// grey. Selection swaps to active blue so it pops against the white.
+const BUILDING_COLOR = 0xfaf6ec;
 const BUILDING_HIGHLIGHT = 0x4a90e2;
 // Outline near-black at a heavier 4 px so the building's silhouette
 // reads as a confident line against the satellite imagery. Creases
@@ -95,12 +96,13 @@ export class RoofLayer {
     // the building pick up subtle shading that grounds the model.
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    // Lower ambient + stronger directional sun gives wall/roof faces
-    // real greyscale variation (lit ≈ near-white, shaded ≈ mid-grey).
-    // A soft fill from the opposite side lifts the darkest faces back
-    // off pure black so they still read as part of the building.
-    const ambient = new THREE.AmbientLight(0xffffff, 0.45);
-    const sun = new THREE.DirectionalLight(0xffffff, 0.95);
+    // Higher ambient (with a slight warm tint) + softer directional sun
+    // pulls the shaded faces up out of grey-industrial territory and
+    // into warm cream-white — the architectural foam-board reading
+    // the user is after. A weak opposite-side fill keeps the deepest
+    // shade from going flat.
+    const ambient = new THREE.AmbientLight(0xfff5e8, 0.6);
+    const sun = new THREE.DirectionalLight(0xffffff, 0.7);
     sun.position.set(40, 80, 60);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -111,7 +113,7 @@ export class RoofLayer {
     sun.shadow.camera.top = 150;
     sun.shadow.camera.bottom = -150;
     sun.shadow.bias = -0.0005;
-    const fill = new THREE.DirectionalLight(0xffffff, 0.22);
+    const fill = new THREE.DirectionalLight(0xfff8eb, 0.16);
     fill.position.set(-50, -40, 30);
     this.scene.add(ambient);
     this.scene.add(sun);
@@ -197,51 +199,39 @@ export class RoofLayer {
     const silhouette: number[] = [];
     const crease: number[] = [];
     for (const edge of d.edges) {
-      // Walk neighbours: count walls vs roof, and sample front/back-
-      // facing relative to the view. This drives the four-way decision
-      // below.
       let hasFront = false;
       let hasBack = false;
       let wallCount = 0;
-      let roofCount = 0;
       for (const fIdx of edge.faces) {
         const part = d.parts[fIdx]!;
         if (part.isWall) wallCount++;
-        else roofCount++;
         const dotN = part.normal.dot(this.viewDir);
         if (dotN < 0) hasFront = true;
         else if (dotN > 0) hasBack = true;
       }
-      // (1) All neighbours back-facing → edge is occluded by the front
-      //     of the building; hide.
+      // (1) All neighbours back-facing → occluded; hide.
       if (!hasFront) continue;
       // (2) Roof-only edges (ridges, hips, sawtooth valleys, gambrel
-      //     breaks) — always thin. Even when a ridge straddles the view
-      //     direction it's an *internal* roof feature, not the building's
-      //     outline, so the user's "thin walls inside" rule wins over
-      //     the silhouette test.
+      //     breaks) — always thin. Internal roof features are creases,
+      //     not outline, even when they happen to straddle the view.
       if (wallCount === 0) {
         push(crease, edge);
         continue;
       }
-      // (3) Boundary edge meeting a wall — typically the wall-meets-
-      //     ground line. Always part of the outline.
+      // (3) Boundary edge with a wall — the wall-meets-ground line.
+      //     Always part of the outline.
       if (edge.faces.length === 1) {
         push(silhouette, edge);
         continue;
       }
-      // (4) Wall meets a roof slope (eave transition) — always thick;
-      //     this is the architecturally important "where wall ends, roof
-      //     begins" line, including the slanted gable-end peaks.
-      if (wallCount >= 1 && roofCount >= 1) {
-        push(silhouette, edge);
-        continue;
-      }
-      // (5) Wall meets another wall (footprint corner, sawtooth bay
-      //     triangle base). Use the true silhouette test: only thick if
-      //     one neighbour faces toward the camera and the other faces
-      //     away. A front-facing convex corner (both walls visible) is
-      //     INSIDE the silhouette and stays thin.
+      // (4) Any other wall-adjacent edge (wall-to-wall corner OR
+      //     wall-to-roof eave): pure silhouette test. The eave between
+      //     a front wall and front roof slope is INSIDE the building's
+      //     outline and stays thin; the eave that wraps around the
+      //     silhouette (where the front roof meets a side wall pointing
+      //     away from the camera) gets the heavy stroke. That matches
+      //     the user's rule of "only the external outline of what you
+      //     can see is thick".
       if (hasFront && hasBack) push(silhouette, edge);
       else push(crease, edge);
     }
