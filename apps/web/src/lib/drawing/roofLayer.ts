@@ -15,23 +15,36 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 
-// One cream for the whole building — walls and roof faces. Variation comes
-// from the directional light hitting different face angles. The warm-cream
-// highlight only swaps in when the user has the building selected.
-const BUILDING_COLOR = 0xf0ebe5;
-const BUILDING_HIGHLIGHT = 0xfff1cf;
+// Architect-model off-white. The directional light + a soft opposite-side
+// fill provide the actual greyscale variation across faces — picking a
+// warm off-white as the base lets the lit faces stay almost-white while
+// the shaded faces drop to a mid-grey, the way a real plaster massing
+// model reads. Selection swaps to the active blue so it pops against the
+// cream of unselected buildings on satellite imagery.
+const BUILDING_COLOR = 0xebe7e0;
+const BUILDING_HIGHLIGHT = 0x4a90e2;
 const EDGE_OUTLINE = 0x141618;
-const EDGE_CREASE = 0x6a6d72;
+// Lighter / cooler crease grey so the thin lines don't fight the
+// silhouette — the goal is for creases to read as a soft pencil
+// reference, not as a competing outline.
+const EDGE_CREASE = 0x9ea2a8;
 const OUTLINE_WIDTH_PX = 3;
 const CREASE_WIDTH_PX = 1.2;
 
 // Dedup tolerance for matching vertices across faces (in metres, ≈ 0.5 mm).
 const POS_QUANT = 2000;
 
-/** A planar polygon face — a wall quad or a roof face. */
+/** A planar polygon face — a wall quad or a roof face. `isWall` flags
+ *  faces that participate in the building's vertical envelope: the
+ *  footprint extrusion AND any vertical-end-wall roof faces (gable end
+ *  triangles, sawtooth bay triangles). Edge classification uses this to
+ *  distinguish architectural outline edges (wall-adjacent) from internal
+ *  roof creases (ridges, hips, sawtooth valleys) — the latter must stay
+ *  thin regardless of where the camera puts them silhouette-wise. */
 type FacePart = {
   ring: THREE.Vector3[];
   normal: THREE.Vector3;
+  isWall: boolean;
 };
 
 /** An undirected edge with the (1 or 2) adjacent face indices that share
@@ -78,12 +91,44 @@ export class RoofLayer {
       antialias: true,
     });
     this.renderer.autoClear = false;
-    const ambient = new THREE.AmbientLight(0xffffff, 0.7);
-    const sun = new THREE.DirectionalLight(0xffffff, 0.7);
+    // Soft shadow mapping so the directional sun drops a shadow onto a
+    // hidden ground plane (see `ground` below). Without this the scene
+    // looked too "evenly lit"; with this, walls and the ground beside
+    // the building pick up subtle shading that grounds the model.
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Lower ambient + stronger directional sun gives wall/roof faces
+    // real greyscale variation (lit ≈ near-white, shaded ≈ mid-grey).
+    // A soft fill from the opposite side lifts the darkest faces back
+    // off pure black so they still read as part of the building.
+    const ambient = new THREE.AmbientLight(0xffffff, 0.45);
+    const sun = new THREE.DirectionalLight(0xffffff, 0.95);
     sun.position.set(40, 80, 60);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 400;
+    sun.shadow.camera.left = -150;
+    sun.shadow.camera.right = 150;
+    sun.shadow.camera.top = 150;
+    sun.shadow.camera.bottom = -150;
+    sun.shadow.bias = -0.0005;
+    const fill = new THREE.DirectionalLight(0xffffff, 0.22);
+    fill.position.set(-50, -40, 30);
     this.scene.add(ambient);
     this.scene.add(sun);
+    this.scene.add(fill);
     this.scene.add(this.group);
+    // A large invisible ground plane sitting just above z=0 that ONLY
+    // catches shadows (ShadowMaterial is otherwise transparent). The
+    // satellite imagery from maplibre stays visible through it; only the
+    // sun's shadow darkens it where the building blocks light.
+    const groundGeom = new THREE.PlaneGeometry(2000, 2000);
+    const groundMat = new THREE.ShadowMaterial({ opacity: 0.28 });
+    const ground = new THREE.Mesh(groundGeom, groundMat);
+    ground.position.set(0, 0, 0.02);
+    ground.receiveShadow = true;
+    this.scene.add(ground);
   }
 
   onRemove(): void {
@@ -154,29 +199,53 @@ export class RoofLayer {
     const silhouette: number[] = [];
     const crease: number[] = [];
     for (const edge of d.edges) {
-      // Sample each neighbour's normal vs the view direction. An edge is
-      // a silhouette edge iff its neighbours straddle the view — some
-      // front-facing, some back-facing. Boundary edges (only one
-      // neighbour, e.g. the wall-meets-ground line) are silhouette when
-      // that neighbour is front-facing and invisible-back-of-building
-      // otherwise. Internal creases (all neighbours on the same side of
-      // the view) get the thin stroke.
+      // Walk neighbours: count walls vs roof, and sample front/back-
+      // facing relative to the view. This drives the four-way decision
+      // below.
       let hasFront = false;
       let hasBack = false;
+      let wallCount = 0;
+      let roofCount = 0;
       for (const fIdx of edge.faces) {
-        const dotN = d.parts[fIdx]!.normal.dot(this.viewDir);
+        const part = d.parts[fIdx]!;
+        if (part.isWall) wallCount++;
+        else roofCount++;
+        const dotN = part.normal.dot(this.viewDir);
         if (dotN < 0) hasFront = true;
         else if (dotN > 0) hasBack = true;
       }
-      if (edge.faces.length === 1) {
-        if (hasFront) push(silhouette, edge);
-        // back-facing boundary edge: hide (it's behind the building)
+      // (1) All neighbours back-facing → edge is occluded by the front
+      //     of the building; hide.
+      if (!hasFront) continue;
+      // (2) Roof-only edges (ridges, hips, sawtooth valleys, gambrel
+      //     breaks) — always thin. Even when a ridge straddles the view
+      //     direction it's an *internal* roof feature, not the building's
+      //     outline, so the user's "thin walls inside" rule wins over
+      //     the silhouette test.
+      if (wallCount === 0) {
+        push(crease, edge);
         continue;
       }
+      // (3) Boundary edge meeting a wall — typically the wall-meets-
+      //     ground line. Always part of the outline.
+      if (edge.faces.length === 1) {
+        push(silhouette, edge);
+        continue;
+      }
+      // (4) Wall meets a roof slope (eave transition) — always thick;
+      //     this is the architecturally important "where wall ends, roof
+      //     begins" line, including the slanted gable-end peaks.
+      if (wallCount >= 1 && roofCount >= 1) {
+        push(silhouette, edge);
+        continue;
+      }
+      // (5) Wall meets another wall (footprint corner, sawtooth bay
+      //     triangle base). Use the true silhouette test: only thick if
+      //     one neighbour faces toward the camera and the other faces
+      //     away. A front-facing convex corner (both walls visible) is
+      //     INSIDE the silhouette and stays thin.
       if (hasFront && hasBack) push(silhouette, edge);
-      else if (hasFront) push(crease, edge);
-      // all back-facing: hide (the edge is on the far side of the
-      // building, occluded by front-facing faces)
+      else push(crease, edge);
     }
     setFatLineGeometry(d.silhouette, silhouette);
     setFatLineGeometry(d.crease, crease);
@@ -231,7 +300,12 @@ function buildBuildingDraw(
   );
   const eave = building.eave_height_m;
 
-  // 1) Collect roof faces as FaceParts.
+  // 1) Collect roof faces as FaceParts. `gable_end_wall` faces (the
+  //    triangle gables under a gable roof, and the per-bay triangle
+  //    infills the sawtooth generator emits) are vertical end-walls,
+  //    not sloped roof — flag them as walls so the eave-to-peak edge
+  //    counts as a wall-to-roof transition (always thick) instead of
+  //    a roof-to-roof crease (always thin).
   const roofParts: FacePart[] = [];
   for (const face of building.faces) {
     const ring = face.geometry.coordinates[0] ?? [];
@@ -244,7 +318,7 @@ function buildBuildingDraw(
     }
     const normal = polygonNormal(verts);
     if (!normal) continue;
-    roofParts.push({ ring: verts, normal });
+    roofParts.push({ ring: verts, normal, isWall: face.role === 'gable_end_wall' });
   }
 
   // 2) Build wall faces whose TOP edges follow the actual roof profile
@@ -358,7 +432,7 @@ function buildWallFollowingProfile(
   // footprint, outward is the right-hand-side of AB direction.
   const len = Math.sqrt(len2);
   const normal = new THREE.Vector3(dy / len, -dx / len, 0);
-  return { ring, normal };
+  return { ring, normal, isWall: true };
 }
 
 function makePartMesh(part: FacePart, selected: boolean): THREE.Mesh | null {
@@ -368,7 +442,10 @@ function makePartMesh(part: FacePart, selected: boolean): THREE.Mesh | null {
     color: selected ? BUILDING_HIGHLIGHT : BUILDING_COLOR,
     side: THREE.DoubleSide,
   });
-  return new THREE.Mesh(geom, mat);
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
 }
 
 function makeFatLine(positions: number[], color: number, widthPx: number): LineSegments2 {
