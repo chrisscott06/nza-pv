@@ -15,20 +15,18 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 
-// Architect-model off-white. The directional light + a soft opposite-side
-// fill provide the actual greyscale variation across faces — picking a
-// warm off-white as the base lets the lit faces stay almost-white while
-// the shaded faces drop to a mid-grey, the way a real plaster massing
-// model reads. Selection swaps to the active blue so it pops against the
-// cream of unselected buildings on satellite imagery.
-const BUILDING_COLOR = 0xebe7e0;
+// Near-white architect-render base — lit faces hold a clean off-white,
+// shaded faces drop into a soft pale grey under the directional sun.
+// Selection swaps to active blue so it pops against the white.
+const BUILDING_COLOR = 0xf6f3ee;
 const BUILDING_HIGHLIGHT = 0x4a90e2;
+// Outline near-black at a heavier 4 px so the building's silhouette
+// reads as a confident line against the satellite imagery. Creases
+// drop to a darker grey than before so internal ridges/hips show up
+// against the whiter surface without competing with the outline.
 const EDGE_OUTLINE = 0x141618;
-// Lighter / cooler crease grey so the thin lines don't fight the
-// silhouette — the goal is for creases to read as a soft pencil
-// reference, not as a competing outline.
-const EDGE_CREASE = 0x9ea2a8;
-const OUTLINE_WIDTH_PX = 3;
+const EDGE_CREASE = 0x3a3d42;
+const OUTLINE_WIDTH_PX = 4;
 const CREASE_WIDTH_PX = 1.2;
 
 // Dedup tolerance for matching vertices across faces (in metres, ≈ 0.5 mm).
@@ -300,14 +298,17 @@ function buildBuildingDraw(
   );
   const eave = building.eave_height_m;
 
-  // 1) Collect roof faces as FaceParts. `gable_end_wall` faces (the
-  //    triangle gables under a gable roof, and the per-bay triangle
-  //    infills the sawtooth generator emits) are vertical end-walls,
-  //    not sloped roof — flag them as walls so the eave-to-peak edge
-  //    counts as a wall-to-roof transition (always thick) instead of
-  //    a roof-to-roof crease (always thin).
+  // 1) Collect SLOPED roof faces as FaceParts. We skip `gable_end_wall`
+  //    faces (gable end triangles, sawtooth / M-roof per-bay infills)
+  //    entirely: the profile-following wall below covers exactly the
+  //    same area via its zigzag top, so including them too would
+  //    introduce a duplicate "base" edge running straight across the
+  //    eave that the wall doesn't share (it goes via the peak), and
+  //    that edge ends up as a spurious thick line cutting INSIDE the
+  //    building's outline.
   const roofParts: FacePart[] = [];
   for (const face of building.faces) {
+    if (face.role === 'gable_end_wall') continue;
     const ring = face.geometry.coordinates[0] ?? [];
     if (ring.length < 4) continue;
     const verts: THREE.Vector3[] = [];
@@ -318,7 +319,7 @@ function buildBuildingDraw(
     }
     const normal = polygonNormal(verts);
     if (!normal) continue;
-    roofParts.push({ ring: verts, normal, isWall: face.role === 'gable_end_wall' });
+    roofParts.push({ ring: verts, normal, isWall: false });
   }
 
   // 2) Build wall faces whose TOP edges follow the actual roof profile
