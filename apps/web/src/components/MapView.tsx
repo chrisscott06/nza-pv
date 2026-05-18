@@ -159,7 +159,10 @@ export function MapView(): JSX.Element {
         map.easeTo({ pitch: 60, duration: 700 });
         map.dragRotate.enable();
         map.touchPitch.enable();
-        setExtrusionVisible(map, true);
+        // Walls now render inside RoofLayer (Three.js) so they share the
+        // roof's lighting; keeping the maplibre extrusion visible would
+        // double-draw flat-shaded cream on top of the Three.js mesh.
+        setExtrusionVisible(map, false);
         // Mount the custom roof-faces layer on top of the extrusion layer
         // (added last → renders last → sits on top).
         if (!roofLayerRef.current) {

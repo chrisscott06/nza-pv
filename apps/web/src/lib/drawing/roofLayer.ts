@@ -1,32 +1,37 @@
-// MapLibre custom 3D layer that draws our roof faces using Three.js over the
-// satellite map. `fill-extrusion` (used for walls) can only produce vertical-
-// walled boxes; this layer projects each face's actual lng/lat/z geometry
-// through the same camera matrix maplibre uses, so the slopes line up with
-// the tilted satellite imagery.
+// MapLibre custom 3D layer that draws our buildings using Three.js over the
+// satellite map. Walls AND roof faces both live here now, sharing the same
+// material + lighting so the building reads as a single continuous surface
+// rather than a coloured roof sitting on a flat cream base. Outlines use
+// the fat-line shader from three/examples (LineSegments2) so we get a
+// proper thick stroke instead of WebGL's clamped 1px `gl.lineWidth`.
 
 import {
   type Building,
-  type RoofFace,
+  ensureCCW,
   lngLatToMeters,
   polygonCentroidLngLat,
+  type RoofFace,
 } from '@nza-pv/shared';
 import maplibregl from 'maplibre-gl';
 import * as THREE from 'three';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 
-// Slate grey for PV-eligible sloped faces — shades crisply under a single
-// directional light. Non-PV faces (gable end walls, parapets, glazing
-// strips) take the wall cream so they read as extensions of the wall rather
-// than oddly-coloured roof. Selection lights up with a warm cream.
-const ROOF_COLOR = 0x5b6068;
-const ROOF_NON_PV = 0xf0ebe5;
-const ROOF_HIGHLIGHT = 0xfff1cf;
-// Architect's sketch palette: near-black perimeter lines (eaves + wall
-// corners) and a softer mid-grey for internal creases (ridges, hips,
-// valleys). WebGL's `gl.lineWidth()` is clamped to 1 in most browsers, so
-// we lean on colour contrast for the visual weight difference rather than
-// actual stroke width.
-const EDGE_PERIMETER = 0x141618;
-const EDGE_CREASE = 0x5a5d62;
+// One cream for the whole building — walls and roof faces. Variation comes
+// from the directional light hitting different face angles, the same way
+// it would in a real architect's massing model. The warm-cream highlight
+// only swaps in when the user has the building selected.
+const BUILDING_COLOR = 0xf0ebe5;
+const BUILDING_HIGHLIGHT = 0xfff1cf;
+// Stroke colours and pixel widths for the fat-line outline pass. The
+// silhouette (wall corners + eaves) gets the heavier stroke so the
+// building reads as a single boxy shape; ridges / hips / gambrel breaks
+// get the lighter crease stroke so they don't fight the silhouette.
+const EDGE_OUTLINE = 0x141618;
+const EDGE_CREASE = 0x3a3d42;
+const OUTLINE_WIDTH_PX = 3;
+const CREASE_WIDTH_PX = 1.5;
 
 // We don't `implements maplibregl.CustomLayerInterface` because the maplibre
 // type for `render` references gl-matrix's `mat4` (a Float32Array), and the
@@ -44,6 +49,10 @@ export class RoofLayer {
   private map?: maplibregl.Map;
   private origin?: maplibregl.MercatorCoordinate;
   private group = new THREE.Group();
+  /** LineMaterial computes fat-line width in screen space, so it needs the
+   *  current canvas pixel size every frame. We collect every material we
+   *  create here and refresh `resolution` from `render()`. */
+  private lineMaterials: LineMaterial[] = [];
 
   onAdd(map: maplibregl.Map, gl: WebGLRenderingContext | WebGL2RenderingContext): void {
     this.map = map;
@@ -79,14 +88,31 @@ export class RoofLayer {
     this.origin = maplibregl.MercatorCoordinate.fromLngLat([originLngLat[0], originLngLat[1]], 0);
     for (const b of buildings) {
       const sel = b.id === selectedId;
+      // Walls: a single mesh per building, lit by the same scene lights as
+      // the roof — replaces maplibre's flat fill-extrusion so the whole
+      // building reads as one shaded surface.
+      const walls = buildWallMesh(b, originLngLat, sel);
+      if (walls) this.group.add(walls);
+      // Roof faces.
       for (const face of b.faces) {
         const mesh = buildFaceMesh(face, originLngLat, sel);
         if (mesh) this.group.add(mesh);
-        const edges = buildFaceEdgeLines(face, originLngLat, b.eave_height_m);
-        if (edges) this.group.add(edges);
       }
-      const wallEdges = buildWallCornerLines(b, originLngLat);
-      if (wallEdges) this.group.add(wallEdges);
+      // Outline: vertical wall corners + eave perimeter (where wall meets
+      // roof). This is the building's "boxy" silhouette regardless of roof
+      // shape; drawn with the heavier stroke.
+      const outline = buildSilhouetteLines(b, originLngLat);
+      if (outline) {
+        this.group.add(outline);
+        this.lineMaterials.push(outline.material as LineMaterial);
+      }
+      // Creases: roof-face edges above the eave (ridges, hips, gambrel
+      // breaks). Lighter stroke so they don't compete with the outline.
+      const creases = buildRoofCreaseLines(b, originLngLat);
+      if (creases) {
+        this.group.add(creases);
+        this.lineMaterials.push(creases.material as LineMaterial);
+      }
     }
     this.map?.triggerRepaint();
   }
@@ -108,13 +134,25 @@ export class RoofLayer {
       .makeTranslation(this.origin.x, this.origin.y, this.origin.z)
       .scale(new THREE.Vector3(scale, -scale, scale));
     this.camera.projectionMatrix = proj.multiply(model);
+    // Fat-line widths are computed in screen space, so the material needs
+    // the live canvas pixel size each frame (it can change on map resize).
+    const canvas = this.map?.getCanvas();
+    if (canvas) {
+      for (const mat of this.lineMaterials) {
+        mat.resolution.set(canvas.width, canvas.height);
+      }
+    }
     this.renderer.resetState();
     this.renderer.render(this.scene, this.camera);
   }
 
   private clearMeshes(): void {
     this.group.traverse((obj) => {
-      if (obj instanceof THREE.Mesh || obj instanceof THREE.LineSegments) {
+      if (
+        obj instanceof THREE.Mesh ||
+        obj instanceof THREE.LineSegments ||
+        obj instanceof LineSegments2
+      ) {
         obj.geometry.dispose();
         const m = obj.material;
         if (Array.isArray(m)) m.forEach((mm) => mm.dispose());
@@ -122,6 +160,7 @@ export class RoofLayer {
       }
     });
     this.group.clear();
+    this.lineMaterials = [];
   }
 }
 
@@ -141,75 +180,160 @@ function buildFaceMesh(
   }
   const geom = triangulatePlanarPolygon(verts);
   if (!geom) return null;
-  const color = selected ? ROOF_HIGHLIGHT : face.is_pv_eligible ? ROOF_COLOR : ROOF_NON_PV;
-  const mat = new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide });
+  const mat = new THREE.MeshLambertMaterial({
+    color: selected ? BUILDING_HIGHLIGHT : BUILDING_COLOR,
+    side: THREE.DoubleSide,
+  });
   return new THREE.Mesh(geom, mat);
 }
 
-/** Draw every edge of a roof face as a line. Edges sitting AT eave height
- *  are perimeter (where the wall meets the roof) and use the heavier
- *  near-black colour; edges with at least one endpoint above the eave are
- *  internal creases (ridges, hips, gambrel breaks) and get the softer
- *  grey. Real line width is clamped to 1px in WebGL, so the perimeter /
- *  crease distinction is carried by colour weight, not stroke width. */
-function buildFaceEdgeLines(
-  face: RoofFace,
-  originLngLat: [number, number],
-  eaveZ: number,
-): THREE.Group | null {
-  const ring = face.geometry.coordinates[0] ?? [];
-  if (ring.length < 4) return null;
-  const verts: THREE.Vector3[] = [];
-  for (let i = 0; i < ring.length - 1; i++) {
-    const c = ring[i] as unknown as [number, number, number];
-    const xy = lngLatToMeters([c[0], c[1]], originLngLat);
-    verts.push(new THREE.Vector3(xy[0], xy[1], c[2] ?? 0));
-  }
-  // Tiny tolerance so floating-point drift around the eave plane doesn't
-  // misclassify an edge as a crease.
-  const EAVE_TOL = 0.05;
-  const perimeter: number[] = [];
-  const crease: number[] = [];
-  for (let i = 0; i < verts.length; i++) {
-    const a = verts[i]!;
-    const b = verts[(i + 1) % verts.length]!;
-    const bucket =
-      Math.abs(a.z - eaveZ) < EAVE_TOL && Math.abs(b.z - eaveZ) < EAVE_TOL ? perimeter : crease;
-    bucket.push(a.x, a.y, a.z, b.x, b.y, b.z);
-  }
-  const group = new THREE.Group();
-  if (perimeter.length > 0) group.add(makeLineSegments(perimeter, EDGE_PERIMETER));
-  if (crease.length > 0) group.add(makeLineSegments(crease, EDGE_CREASE));
-  return group;
-}
-
-/** Vertical lines at each footprint corner from the ground to the eave —
- *  these are the "outside" edges of every wall and the only ones a
- *  fill-extrusion paints without any visible seam. Without them the walls
- *  read as a soft cream blob; with them the building gets a crisp boxy
- *  outline that pairs with the roof creases for the architect-sketch look. */
-function buildWallCornerLines(
+/** Extrude the footprint into a single wall mesh, sharing the same
+ *  material + lighting as the roof. Replaces maplibre's flat fill-
+ *  extrusion so the building reads as one continuous shaded surface. */
+function buildWallMesh(
   building: Building,
   originLngLat: [number, number],
-): THREE.LineSegments | null {
-  const ring = building.footprint.coordinates[0] ?? [];
-  if (ring.length < 4) return null;
+  selected: boolean,
+): THREE.Mesh | null {
   const eave = building.eave_height_m;
+  if (eave <= 0) return null;
+  const ringLL = building.footprint.coordinates[0] ?? [];
+  if (ringLL.length < 4) return null;
+  // ensureCCW so that each wall quad ends up with its outward normal
+  // (computed via cross product of edge1 × +Z) pointing AWAY from the
+  // building interior — otherwise Lambert lighting would flip and the
+  // walls would render as if lit from inside.
+  const ringM = ensureCCW(
+    ringLL.slice(0, -1).map((c) => {
+      const lonlat = c as unknown as [number, number];
+      return lngLatToMeters([lonlat[0], lonlat[1]], originLngLat);
+    }),
+  );
   const positions: number[] = [];
-  // Skip the closing duplicate; each corner contributes one vertical edge.
-  for (let i = 0; i < ring.length - 1; i++) {
-    const c = ring[i] as unknown as [number, number];
-    const [x, y] = lngLatToMeters([c[0], c[1]], originLngLat);
-    positions.push(x, y, 0, x, y, eave);
+  for (let i = 0; i < ringM.length; i++) {
+    const a = ringM[i]!;
+    const b = ringM[(i + 1) % ringM.length]!;
+    // Two triangles per wall quad, wound so the outward normal is
+    // perpendicular to the wall in world XY (no vertical tilt).
+    positions.push(
+      a[0],
+      a[1],
+      0, // A_ground
+      b[0],
+      b[1],
+      0, // B_ground
+      b[0],
+      b[1],
+      eave, // B_eave
+      a[0],
+      a[1],
+      0, // A_ground
+      b[0],
+      b[1],
+      eave, // B_eave
+      a[0],
+      a[1],
+      eave, // A_eave
+    );
   }
-  return positions.length > 0 ? makeLineSegments(positions, EDGE_PERIMETER) : null;
-}
-
-function makeLineSegments(positions: number[], color: number): THREE.LineSegments {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  const m = new THREE.LineBasicMaterial({ color });
-  return new THREE.LineSegments(g, m);
+  g.computeVertexNormals();
+  const mat = new THREE.MeshLambertMaterial({
+    color: selected ? BUILDING_HIGHLIGHT : BUILDING_COLOR,
+    side: THREE.DoubleSide,
+  });
+  return new THREE.Mesh(g, mat);
+}
+
+/** The building's silhouette skeleton: vertical edges at every footprint
+ *  corner from ground to eave, plus the eave perimeter itself (footprint
+ *  polygon traced at eave height). These together box the building in,
+ *  regardless of what shape the roof takes — the user's "thick outline
+ *  across the whole external". Returns a single fat-line LineSegments2 so
+ *  width survives WebGL's `gl.lineWidth` clamp. */
+function buildSilhouetteLines(
+  building: Building,
+  originLngLat: [number, number],
+): LineSegments2 | null {
+  const ringLL = building.footprint.coordinates[0] ?? [];
+  if (ringLL.length < 4) return null;
+  const eave = building.eave_height_m;
+  const ringM: Array<[number, number]> = ringLL.slice(0, -1).map((c) => {
+    const lonlat = c as unknown as [number, number];
+    return lngLatToMeters([lonlat[0], lonlat[1]], originLngLat);
+  });
+  const positions: number[] = [];
+  for (let i = 0; i < ringM.length; i++) {
+    const a = ringM[i]!;
+    const b = ringM[(i + 1) % ringM.length]!;
+    // Vertical wall-corner segment at A.
+    positions.push(a[0], a[1], 0, a[0], a[1], eave);
+    // Horizontal eave segment from A to B at eave height.
+    positions.push(a[0], a[1], eave, b[0], b[1], eave);
+  }
+  return positions.length > 0 ? makeFatLine(positions, EDGE_OUTLINE, OUTLINE_WIDTH_PX) : null;
+}
+
+/** Ridges, hips, valleys, gambrel breaks — every roof-face edge whose
+ *  endpoints aren't both sitting on the eave plane. Lighter colour and
+ *  thinner stroke than the silhouette so it sits behind the building's
+ *  outline visually. */
+function buildRoofCreaseLines(
+  building: Building,
+  originLngLat: [number, number],
+): LineSegments2 | null {
+  const EAVE_TOL = 0.05;
+  const eave = building.eave_height_m;
+  // De-duplicate edges shared between adjacent faces so each ridge / hip
+  // only renders once (it'd otherwise count twice — once per face).
+  const seen = new Set<string>();
+  const positions: number[] = [];
+  for (const face of building.faces) {
+    const ring = face.geometry.coordinates[0] ?? [];
+    if (ring.length < 4) continue;
+    const verts: Array<[number, number, number]> = [];
+    for (let i = 0; i < ring.length - 1; i++) {
+      const c = ring[i] as unknown as [number, number, number];
+      const [x, y] = lngLatToMeters([c[0], c[1]], originLngLat);
+      verts.push([x, y, c[2] ?? 0]);
+    }
+    for (let i = 0; i < verts.length; i++) {
+      const a = verts[i]!;
+      const b = verts[(i + 1) % verts.length]!;
+      // Skip edges that lie on the eave plane — those belong to the
+      // silhouette pass, not the crease pass.
+      if (Math.abs(a[2] - eave) < EAVE_TOL && Math.abs(b[2] - eave) < EAVE_TOL) continue;
+      const key = edgeKey(a, b);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      positions.push(a[0], a[1], a[2], b[0], b[1], b[2]);
+    }
+  }
+  return positions.length > 0 ? makeFatLine(positions, EDGE_CREASE, CREASE_WIDTH_PX) : null;
+}
+
+function edgeKey(a: [number, number, number], b: [number, number, number]): string {
+  // Round to mm so floating-point drift doesn't break the dedup.
+  const q = (n: number): number => Math.round(n * 1000);
+  const ka = `${q(a[0])},${q(a[1])},${q(a[2])}`;
+  const kb = `${q(b[0])},${q(b[1])},${q(b[2])}`;
+  return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+}
+
+function makeFatLine(positions: number[], color: number, widthPx: number): LineSegments2 {
+  const g = new LineSegmentsGeometry();
+  g.setPositions(positions);
+  const m = new LineMaterial({
+    color,
+    linewidth: widthPx,
+    // Resolution gets updated each frame from RoofLayer.render(); seed
+    // with something non-zero so the first frame doesn't draw zero-width
+    // lines.
+    resolution: new THREE.Vector2(1, 1),
+    worldUnits: false,
+  });
+  return new LineSegments2(g, m);
 }
 
 /** Earcut-based triangulator for a planar 3D polygon. Same shape as
