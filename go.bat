@@ -59,6 +59,13 @@ echo.
 echo Starting NZA-PV dev server on http://localhost:5173 ...
 echo Press Ctrl+C to stop.
 echo.
+
+REM Launch a small background PowerShell that polls the dev server and opens
+REM the browser as soon as it answers. We start it BEFORE `pnpm dev` because
+REM that call blocks until the server stops. The poller times out after ~60s
+REM in case the server fails to come up so it doesn't sit forever.
+start "nza-pv-open-browser" /b powershell -NoProfile -WindowStyle Hidden -Command "for ($i=0; $i -lt 60; $i++) { try { Invoke-WebRequest -Uri 'http://localhost:5173/' -UseBasicParsing -TimeoutSec 1 -ErrorAction Stop | Out-Null; Start-Process 'http://localhost:5173/'; break } catch { Start-Sleep -Seconds 1 } }"
+
 call pnpm dev
 set "DEV_EXIT=!errorlevel!"
 echo.
