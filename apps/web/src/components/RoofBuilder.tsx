@@ -17,18 +17,27 @@ export function RoofBuilder({ building }: { building: Building }): JSX.Element {
   const setFaces = useProject((s) => s.setFaces);
 
   function pick(style: RoofStyle): void {
-    // Snapshot the building's current OBB long-axis bearing so the new roof
-    // ridge is anchored to the same world direction the long axis happened
-    // to point in at apply time. From then on rotating the building won't
-    // swing the ridge with it — it'll stay put in world coords, the same
-    // way mono's `high_side` already does. Without this snapshot the ridge
-    // would fall back to the OBB-relative 'longest' default and spin with
-    // the building.
-    const bearing = mathAngleToRidgeBearing(buildingOBBRotation(building));
+    // Snapshot whichever OBB axis the chosen preset's default places the
+    // ridge along, then store that axis as a WORLD bearing. From then on
+    // rotating the building won't swing the ridge with it — it'll stay
+    // put in world coords, the same way mono's `high_side` already does.
+    //
+    // For most rotation-aware roofs (gable, hip, butterfly, …) the default
+    // ridge runs along the OBB *long* axis. For M-roof / sawtooth the
+    // default ridge runs along the OBB *short* axis, so we snapshot the
+    // perpendicular bearing — otherwise the freshly-applied roof would
+    // appear visibly flipped relative to what every previous build of the
+    // app showed.
+    const longBearing = mathAngleToRidgeBearing(buildingOBBRotation(building));
+    const bearing = defaultRidgeIsOnShortAxis(style) ? (longBearing + 90) % 180 : longBearing;
     const roof = withBearing(defaultRoofForStyle(style, building.roof), bearing);
     setRoof(building.id, roof);
     const faces = regenerateFaces({ ...building, roof });
     setFaces(building.id, faces);
+  }
+
+  function defaultRidgeIsOnShortAxis(style: RoofStyle): boolean {
+    return style === 'parallel_gables' || style === 'sawtooth';
   }
 
   function updateRoof(roof: Roof): void {

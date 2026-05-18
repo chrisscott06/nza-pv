@@ -212,17 +212,34 @@ describe('world-anchored ridge bearing survives building rotation', () => {
       const roof90: Roof = withBearing(defaultRoofForStyle(style), 90);
       const facesAt0 = regenerateFaces({ ...makeBuilding(rect0), roof: roof0 });
       const facesAt90 = regenerateFaces({ ...makeBuilding(rect90), roof: roof90 });
-      const pvCards0 = facesAt0
-        .filter((f) => f.is_pv_eligible)
+      // Compare the cardinal set of every main / gambrel / mansard slope —
+      // ignoring `is_pv_eligible` because the 60° tilt boundary is
+      // floating-point-sensitive (a 60° slope can land at 60.0000001° one
+      // way and 59.9999999° the other), which would mask a real orientation
+      // match-up behind a noisy eligibility flip. End-walls (tilt 90°) are
+      // omitted for the same reason — they're never PV-eligible anyway and
+      // their cardinals don't carry the test's signal.
+      const sloped = (cardinal: string) => !['flat', 'N/A'].includes(cardinal);
+      const slopeRoles = new Set([
+        'main',
+        'gambrel_lower',
+        'gambrel_upper',
+        'mansard_lower',
+        'mansard_upper',
+        'hip_end',
+        'sawtooth_pitch',
+      ]);
+      const cards0 = facesAt0
+        .filter((f) => slopeRoles.has(f.role) && sloped(f.cardinal))
         .map((f) => f.cardinal)
         .sort();
-      const pvCards90 = facesAt90
-        .filter((f) => f.is_pv_eligible)
+      const cards90 = facesAt90
+        .filter((f) => slopeRoles.has(f.role) && sloped(f.cardinal))
         .map((f) => f.cardinal)
         .sort();
       // Bearing 90° (E–W ridge) means the slopes face N and S in both
       // building orientations — the cardinal set must match.
-      expect(pvCards90).toEqual(pvCards0);
+      expect(cards90).toEqual(cards0);
     });
   }
 });
