@@ -1,6 +1,6 @@
 // Inspector panel — contextual on the current selection.
 
-import { PANEL_PRESETS, summarisePv } from '@nza-pv/shared';
+import { PANEL_PRESETS, type RoofFace, summarisePv } from '@nza-pv/shared';
 import { useState } from 'react';
 import { useShallow } from 'zustand/shallow';
 import { regenerateFaces } from '../lib/roof/regenerate.js';
@@ -239,6 +239,12 @@ export function InspectorPanel(): JSX.Element {
 
       <RoofBuilder building={building} />
 
+      <FacesList
+        faces={building.faces}
+        onToggleEligible={(faceId) => toggleFaceEligibility(building.id, faceId)}
+        onPick={(faceId) => select({ kind: 'face', buildingId: building.id, faceId })}
+      />
+
       <BulkOpsPanel buildingId={building.id} />
 
       <button
@@ -275,4 +281,80 @@ function cardinalLabel(c: string): string {
 
 function roleLabel(r: string): string {
   return r.replaceAll('_', ' ');
+}
+
+/** Per-face table for the building Inspector — one row per roof face with
+ *  area m², tilt, PV-eligible toggle, and the face's nominal kWp. Clicking
+ *  a row drills into the per-face Inspector. Toggling the checkbox flips
+ *  the face in / out of PV instantly and the building rollup updates. */
+function FacesList({
+  faces,
+  onToggleEligible,
+  onPick,
+}: {
+  faces: RoofFace[];
+  onToggleEligible: (faceId: string) => void;
+  onPick: (faceId: string) => void;
+}): JSX.Element | null {
+  if (faces.length === 0) return null;
+  // Walls / vertical end-walls have tilt ≈ 90° and aren't useful in this
+  // table (you can't put PV on a vertical wall in our model). Hide them
+  // so the table only shows sloped or flat roof faces.
+  const rows = faces.filter((f) => f.tilt_deg < 85);
+  if (rows.length === 0) return null;
+  return (
+    <div style={{ marginTop: 14 }}>
+      <h4 className="section-title" style={{ margin: '4px 0 6px' }}>
+        Roof faces
+      </h4>
+      <div className="muted" style={{ fontSize: 11, marginBottom: 6 }}>
+        Tick a face to include it in PV. Click the row for full controls.
+      </div>
+      <table className="pv-table">
+        <thead>
+          <tr>
+            <th style={{ width: 26 }} aria-label="PV eligible" />
+            <th style={{ textAlign: 'left' }}>Face</th>
+            <th style={{ textAlign: 'right' }}>m²</th>
+            <th style={{ textAlign: 'right' }}>Tilt</th>
+            <th style={{ textAlign: 'right' }}>kWp</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((f) => {
+            const pv = summarisePv(f);
+            return (
+              <tr
+                key={f.id}
+                onClick={() => onPick(f.id)}
+                style={{ cursor: 'pointer' }}
+                title="Open per-face controls"
+              >
+                <td onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={f.is_pv_eligible}
+                    onChange={() => onToggleEligible(f.id)}
+                    aria-label={`Toggle PV on ${cardinalLabel(f.cardinal)} face`}
+                  />
+                </td>
+                <td>
+                  {cardinalLabel(f.cardinal)} <span className="muted">{roleLabel(f.role)}</span>
+                </td>
+                <td className="tabular" style={{ textAlign: 'right' }}>
+                  {f.area_m2.toFixed(1)}
+                </td>
+                <td className="tabular" style={{ textAlign: 'right' }}>
+                  {f.tilt_deg.toFixed(0)}°
+                </td>
+                <td className="tabular" style={{ textAlign: 'right' }}>
+                  {pv.nominal_kwp > 0 ? pv.nominal_kwp.toFixed(1) : '—'}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
 }
