@@ -15,14 +15,13 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 
-// Warm near-white architect-card base. Combined with a higher ambient
-// and slightly warm ambient tint below, lit faces hold near-white,
-// shaded faces drop to a warm cream-grey rather than industrial cold
-// grey. Selection swaps to a subtle pale sky blue that's similarly
-// light to the off-white so it shades the same way under the
-// directional sun — the building just turns a soft blue rather than
-// flashing a saturated colour at you.
-const BUILDING_COLOR = 0xfaf6ec;
+// Neutral white SketchUp-card base. Combined with pure-white lights
+// below (no warm tint), lit faces stay near-white and shaded faces
+// drop to a clean cool light grey — the classic massing-model look,
+// not the cream-card look. Selection swaps to a subtle pale sky blue
+// so the picked building reads as soft blue-tinted rather than
+// flashing a saturated colour.
+const BUILDING_COLOR = 0xfafafa;
 const BUILDING_HIGHLIGHT = 0xd9e7f3;
 // Outline near-black at a heavier 4 px so the building's silhouette
 // reads as a confident line against the satellite imagery. Creases
@@ -99,13 +98,13 @@ export class RoofLayer {
     // the building pick up subtle shading that grounds the model.
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    // Higher ambient (with a slight warm tint) + softer directional sun
-    // pulls the shaded faces up out of grey-industrial territory and
-    // into warm cream-white — the architectural foam-board reading
-    // the user is after. A weak opposite-side fill keeps the deepest
-    // shade from going flat.
-    const ambient = new THREE.AmbientLight(0xfff5e8, 0.6);
-    const sun = new THREE.DirectionalLight(0xffffff, 0.7);
+    // Neutral white lights — no warm tint anywhere — so shaded faces
+    // drop to a clean cool grey instead of a muddy warm grey. The
+    // ambient sets the floor (~50% of base), the directional sun
+    // adds the architectural shading on top, and a small opposite-
+    // side fill keeps the deepest shadow from looking flat.
+    const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+    const sun = new THREE.DirectionalLight(0xffffff, 0.85);
     sun.position.set(40, 80, 60);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -116,7 +115,7 @@ export class RoofLayer {
     sun.shadow.camera.top = 150;
     sun.shadow.camera.bottom = -150;
     sun.shadow.bias = -0.0005;
-    const fill = new THREE.DirectionalLight(0xfff8eb, 0.16);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.15);
     fill.position.set(-50, -40, 30);
     this.scene.add(ambient);
     this.scene.add(sun);
