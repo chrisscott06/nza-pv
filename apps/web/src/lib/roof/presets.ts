@@ -75,10 +75,12 @@ const LABELS: Record<RoofStyle, string> = {
   cross_gabled: 'Cross gabled',
 };
 
-const WALL = '#d6cfc6';
-const ROOF = '#5d4f43';
-const RIDGE = '#2b231d';
-const STROKE = '#1b1411';
+// Match the 3D scene palette: cream walls + slate-grey roofs + darker slate
+// ridge lines + near-black strokes.
+const WALL = '#e0dbd2';
+const ROOF = '#5b6068';
+const RIDGE = '#2b3138';
+const STROKE = '#16191c';
 
 function svg(body: string): string {
   return `<svg viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'>${body}</svg>`;

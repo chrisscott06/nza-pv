@@ -13,8 +13,12 @@ import {
 import maplibregl from 'maplibre-gl';
 import * as THREE from 'three';
 
-const ROOF_COLOR = 0x4d4338;
-const ROOF_NON_PV = 0x6d655a;
+// Slate grey for PV-eligible sloped faces — shades crisply under a single
+// directional light. Non-PV faces (gable end walls, parapets, glazing
+// strips) take the wall cream so they read as extensions of the wall rather
+// than oddly-coloured roof. Selection lights up with a warm cream.
+const ROOF_COLOR = 0x5b6068;
+const ROOF_NON_PV = 0xf0ebe5;
 const ROOF_HIGHLIGHT = 0xfff1cf;
 
 // We don't `implements maplibregl.CustomLayerInterface` because the maplibre
@@ -65,10 +69,7 @@ export class RoofLayer {
     // metres frame the meshes live in. The transform in `render()` maps that
     // origin to its mercator location every frame.
     const originLngLat = polygonCentroidLngLat(buildings[0]!.footprint);
-    this.origin = maplibregl.MercatorCoordinate.fromLngLat(
-      [originLngLat[0], originLngLat[1]],
-      0,
-    );
+    this.origin = maplibregl.MercatorCoordinate.fromLngLat([originLngLat[0], originLngLat[1]], 0);
     for (const b of buildings) {
       const sel = b.id === selectedId;
       for (const face of b.faces) {
