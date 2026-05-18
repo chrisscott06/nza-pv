@@ -1,6 +1,7 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import maplibregl, { type StyleSpecification } from 'maplibre-gl';
 import { useEffect, useRef, useState } from 'react';
+import { setActiveMap } from '../lib/drawing/mapBridge.js';
 import { installLayers, setExtrusionVisible, updateBuildings } from '../lib/drawing/mapLayers.js';
 import { RoofLayer } from '../lib/drawing/roofLayer.js';
 import { useMapTools } from '../lib/drawing/useMapTools.js';
@@ -79,7 +80,11 @@ export function MapView(): JSX.Element {
     // the top-right has room. Compass stays on so users have a one-click
     // "reset to north" — there's no mouse-wheel equivalent for that.
     map.addControl(
-      new maplibregl.NavigationControl({ showCompass: true, visualizePitch: false, showZoom: true }),
+      new maplibregl.NavigationControl({
+        showCompass: true,
+        visualizePitch: false,
+        showZoom: true,
+      }),
       'bottom-left',
     );
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
@@ -105,6 +110,7 @@ export function MapView(): JSX.Element {
     // `addLayer`. Expose the ref straight away so edit handles can mount even
     // if a slow tile server delays `load`.
     mapRef.current = map;
+    setActiveMap(map);
 
     // Install layers + push current store state when the map's style is
     // ready. The `load` event is the authoritative signal here — `addSource`
@@ -133,6 +139,7 @@ export function MapView(): JSX.Element {
 
     return () => {
       mapRef.current = null;
+      setActiveMap(null);
       map.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -165,7 +172,9 @@ export function MapView(): JSX.Element {
           }
           layer.setBuildings(
             useProject.getState().project?.buildings ?? [],
-            selection.kind === 'building' || selection.kind === 'face' ? selection.buildingId : null,
+            selection.kind === 'building' || selection.kind === 'face'
+              ? selection.buildingId
+              : null,
           );
         }
       } else {

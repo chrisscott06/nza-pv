@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { flyToBuilding } from '../lib/drawing/mapBridge.js';
 import { useProject } from '../store/projectStore.js';
 
 export function BuildingList(): JSX.Element {
@@ -23,7 +24,10 @@ export function BuildingList(): JSX.Element {
           <div
             key={b.id}
             className={`building-row ${selected ? 'selected' : ''}`}
-            onClick={() => select({ kind: 'building', buildingId: b.id })}
+            onClick={() => {
+              select({ kind: 'building', buildingId: b.id });
+              flyToBuilding(b);
+            }}
           >
             <div>
               {editingId === b.id ? (

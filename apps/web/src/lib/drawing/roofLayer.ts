@@ -20,6 +20,13 @@ import * as THREE from 'three';
 const ROOF_COLOR = 0x5b6068;
 const ROOF_NON_PV = 0xf0ebe5;
 const ROOF_HIGHLIGHT = 0xfff1cf;
+// Architect's sketch palette: near-black perimeter lines (eaves + wall
+// corners) and a softer mid-grey for internal creases (ridges, hips,
+// valleys). WebGL's `gl.lineWidth()` is clamped to 1 in most browsers, so
+// we lean on colour contrast for the visual weight difference rather than
+// actual stroke width.
+const EDGE_PERIMETER = 0x141618;
+const EDGE_CREASE = 0x5a5d62;
 
 // We don't `implements maplibregl.CustomLayerInterface` because the maplibre
 // type for `render` references gl-matrix's `mat4` (a Float32Array), and the
@@ -75,7 +82,11 @@ export class RoofLayer {
       for (const face of b.faces) {
         const mesh = buildFaceMesh(face, originLngLat, sel);
         if (mesh) this.group.add(mesh);
+        const edges = buildFaceEdgeLines(face, originLngLat, b.eave_height_m);
+        if (edges) this.group.add(edges);
       }
+      const wallEdges = buildWallCornerLines(b, originLngLat);
+      if (wallEdges) this.group.add(wallEdges);
     }
     this.map?.triggerRepaint();
   }
@@ -103,7 +114,7 @@ export class RoofLayer {
 
   private clearMeshes(): void {
     this.group.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) {
+      if (obj instanceof THREE.Mesh || obj instanceof THREE.LineSegments) {
         obj.geometry.dispose();
         const m = obj.material;
         if (Array.isArray(m)) m.forEach((mm) => mm.dispose());
@@ -133,6 +144,72 @@ function buildFaceMesh(
   const color = selected ? ROOF_HIGHLIGHT : face.is_pv_eligible ? ROOF_COLOR : ROOF_NON_PV;
   const mat = new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide });
   return new THREE.Mesh(geom, mat);
+}
+
+/** Draw every edge of a roof face as a line. Edges sitting AT eave height
+ *  are perimeter (where the wall meets the roof) and use the heavier
+ *  near-black colour; edges with at least one endpoint above the eave are
+ *  internal creases (ridges, hips, gambrel breaks) and get the softer
+ *  grey. Real line width is clamped to 1px in WebGL, so the perimeter /
+ *  crease distinction is carried by colour weight, not stroke width. */
+function buildFaceEdgeLines(
+  face: RoofFace,
+  originLngLat: [number, number],
+  eaveZ: number,
+): THREE.Group | null {
+  const ring = face.geometry.coordinates[0] ?? [];
+  if (ring.length < 4) return null;
+  const verts: THREE.Vector3[] = [];
+  for (let i = 0; i < ring.length - 1; i++) {
+    const c = ring[i] as unknown as [number, number, number];
+    const xy = lngLatToMeters([c[0], c[1]], originLngLat);
+    verts.push(new THREE.Vector3(xy[0], xy[1], c[2] ?? 0));
+  }
+  // Tiny tolerance so floating-point drift around the eave plane doesn't
+  // misclassify an edge as a crease.
+  const EAVE_TOL = 0.05;
+  const perimeter: number[] = [];
+  const crease: number[] = [];
+  for (let i = 0; i < verts.length; i++) {
+    const a = verts[i]!;
+    const b = verts[(i + 1) % verts.length]!;
+    const bucket =
+      Math.abs(a.z - eaveZ) < EAVE_TOL && Math.abs(b.z - eaveZ) < EAVE_TOL ? perimeter : crease;
+    bucket.push(a.x, a.y, a.z, b.x, b.y, b.z);
+  }
+  const group = new THREE.Group();
+  if (perimeter.length > 0) group.add(makeLineSegments(perimeter, EDGE_PERIMETER));
+  if (crease.length > 0) group.add(makeLineSegments(crease, EDGE_CREASE));
+  return group;
+}
+
+/** Vertical lines at each footprint corner from the ground to the eave —
+ *  these are the "outside" edges of every wall and the only ones a
+ *  fill-extrusion paints without any visible seam. Without them the walls
+ *  read as a soft cream blob; with them the building gets a crisp boxy
+ *  outline that pairs with the roof creases for the architect-sketch look. */
+function buildWallCornerLines(
+  building: Building,
+  originLngLat: [number, number],
+): THREE.LineSegments | null {
+  const ring = building.footprint.coordinates[0] ?? [];
+  if (ring.length < 4) return null;
+  const eave = building.eave_height_m;
+  const positions: number[] = [];
+  // Skip the closing duplicate; each corner contributes one vertical edge.
+  for (let i = 0; i < ring.length - 1; i++) {
+    const c = ring[i] as unknown as [number, number];
+    const [x, y] = lngLatToMeters([c[0], c[1]], originLngLat);
+    positions.push(x, y, 0, x, y, eave);
+  }
+  return positions.length > 0 ? makeLineSegments(positions, EDGE_PERIMETER) : null;
+}
+
+function makeLineSegments(positions: number[], color: number): THREE.LineSegments {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  const m = new THREE.LineBasicMaterial({ color });
+  return new THREE.LineSegments(g, m);
 }
 
 /** Earcut-based triangulator for a planar 3D polygon. Same shape as
