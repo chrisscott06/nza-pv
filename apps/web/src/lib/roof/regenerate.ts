@@ -18,6 +18,25 @@ import { boxToWorld, orientedBoundingBox } from './orientedBox.js';
 
 const PV_ELIGIBLE_MAX_TILT = 60;
 
+/** OBB long-axis math angle (CCW from world +X, radians) for a building's
+ *  current footprint. Used by the UI to snapshot a world-anchored ridge
+ *  bearing at preset-apply or rotate-click time. */
+export function buildingOBBRotation(building: Building): number {
+  const anchor = polygonCentroidLngLat(building.footprint);
+  const ringM = polygonRingToMeters(building.footprint, anchor);
+  if (ringM.length < 3) return 0;
+  return orientedBoundingBox(ringM).rotation;
+}
+
+/** Convert a math angle (CCW from world +X, radians) to a world compass
+ *  bearing (CW from north, degrees, folded into [0, 180) since a ridge axis
+ *  has 180° symmetry). */
+export function mathAngleToRidgeBearing(mathRad: number): number {
+  let bearing = 90 - (mathRad * 180) / Math.PI;
+  bearing = ((bearing % 180) + 180) % 180;
+  return bearing;
+}
+
 export function regenerateFaces(building: Building): RoofFace[] {
   const anchor = polygonCentroidLngLat(building.footprint);
   const ringMetres = polygonRingToMeters(building.footprint, anchor);

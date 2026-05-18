@@ -72,11 +72,21 @@ export type RoofMono = {
   high_side: 'N' | 'E' | 'S' | 'W' | number;
 };
 
+/** World bearing of the ridge in degrees from north (0 = N, 90 = E). When
+ *  set, the roof's ridge stays in this world direction even as the building
+ *  is rotated — mirroring how `RoofMono.high_side` anchors the slope to a
+ *  world cardinal. The generator snaps to whichever OBB axis is closer to
+ *  this bearing each time it regenerates. When undefined, the roof falls
+ *  back to its OBB-relative `ridge_axis` / `orientation` enum (the old
+ *  behavior, used by saved files written before this field existed). */
+export type RidgeBearingDeg = number;
+
 export type RoofGable = {
   style: 'gable';
   pitch_deg: number;
   ridge_axis: RidgeAxisChoice;
   ridge_rotation_deg?: number;
+  ridge_bearing_deg?: RidgeBearingDeg;
 };
 
 export type RoofHip = {
@@ -85,6 +95,7 @@ export type RoofHip = {
   /** 'longest' (default) — ridge runs along the long axis; 'shortest' — ridge
    *  swaps to the short axis (a 90° rotation of the whole roof shape). */
   orientation?: 'longest' | 'shortest';
+  ridge_bearing_deg?: RidgeBearingDeg;
 };
 
 export type RoofDutchHip = {
@@ -92,6 +103,7 @@ export type RoofDutchHip = {
   pitch_deg: number;
   ridge_axis: RidgeAxisChoice;
   ridge_rotation_deg?: number;
+  ridge_bearing_deg?: RidgeBearingDeg;
   hip_ratio: number; // 0..1 — fraction of half-span occupied by the hip
 };
 
@@ -102,6 +114,7 @@ export type RoofGambrel = {
   break_height_m: number;
   ridge_axis: RidgeAxisChoice;
   ridge_rotation_deg?: number;
+  ridge_bearing_deg?: RidgeBearingDeg;
 };
 
 export type RoofMansard = {
@@ -111,6 +124,7 @@ export type RoofMansard = {
   break_height_m: number;
   ridge_axis: RidgeAxisChoice;
   ridge_rotation_deg?: number;
+  ridge_bearing_deg?: RidgeBearingDeg;
 };
 
 export type RoofSaltbox = {
@@ -120,6 +134,7 @@ export type RoofSaltbox = {
   ridge_offset_pct: number; // -50..+50; 0 = centred
   ridge_axis: RidgeAxisChoice;
   ridge_rotation_deg?: number;
+  ridge_bearing_deg?: RidgeBearingDeg;
 };
 
 export type RoofSawtooth = {
@@ -130,6 +145,7 @@ export type RoofSawtooth = {
   /** 'longest' (default) — pitches run across the building's long axis;
    *  'shortest' — pitches run across the short axis (rotated 90°). */
   orientation?: 'longest' | 'shortest';
+  ridge_bearing_deg?: RidgeBearingDeg;
 };
 
 export type RoofButterfly = {
@@ -139,6 +155,7 @@ export type RoofButterfly = {
   /** 'longest' (default) — valley runs along the building's long axis;
    *  'shortest' — valley runs along the short axis (rotated 90°). */
   orientation?: 'longest' | 'shortest';
+  ridge_bearing_deg?: RidgeBearingDeg;
 };
 
 export type RoofPyramid = { style: 'pyramid'; pitch_deg: number };
@@ -154,6 +171,7 @@ export type RoofParallelGables = {
   pitch_count: number;
   pitch_deg: number;
   orientation?: 'longest' | 'shortest';
+  ridge_bearing_deg?: RidgeBearingDeg;
 };
 
 export type Roof =

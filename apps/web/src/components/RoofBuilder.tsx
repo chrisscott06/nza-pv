@@ -3,8 +3,13 @@
 // the preset action with a real calc-engine call.
 
 import { type Building, ROOF_STYLES, type Roof, type RoofStyle } from '@nza-pv/shared';
+import { pickAxisForBearing } from '../lib/roof/generators.js';
 import { defaultRoofForStyle, presetLabel, presetThumbnail } from '../lib/roof/presets.js';
-import { regenerateFaces } from '../lib/roof/regenerate.js';
+import {
+  buildingOBBRotation,
+  mathAngleToRidgeBearing,
+  regenerateFaces,
+} from '../lib/roof/regenerate.js';
 import { useProject } from '../store/projectStore.js';
 
 export function RoofBuilder({ building }: { building: Building }): JSX.Element {
@@ -12,7 +17,15 @@ export function RoofBuilder({ building }: { building: Building }): JSX.Element {
   const setFaces = useProject((s) => s.setFaces);
 
   function pick(style: RoofStyle): void {
-    const roof = defaultRoofForStyle(style, building.roof);
+    // Snapshot the building's current OBB long-axis bearing so the new roof
+    // ridge is anchored to the same world direction the long axis happened
+    // to point in at apply time. From then on rotating the building won't
+    // swing the ridge with it — it'll stay put in world coords, the same
+    // way mono's `high_side` already does. Without this snapshot the ridge
+    // would fall back to the OBB-relative 'longest' default and spin with
+    // the building.
+    const bearing = mathAngleToRidgeBearing(buildingOBBRotation(building));
+    const roof = withBearing(defaultRoofForStyle(style, building.roof), bearing);
     setRoof(building.id, roof);
     const faces = regenerateFaces({ ...building, roof });
     setFaces(building.id, faces);
@@ -44,13 +57,42 @@ export function RoofBuilder({ building }: { building: Building }): JSX.Element {
         ))}
       </div>
       <div style={{ marginTop: 10 }}>
-        <RoofParams roof={building.roof} onChange={updateRoof} />
+        <RoofParams roof={building.roof} onChange={updateRoof} building={building} />
       </div>
     </div>
   );
 }
 
-function RoofParams({ roof, onChange }: { roof: Roof; onChange: (r: Roof) => void }): JSX.Element {
+/** Stamp `ridge_bearing_deg` onto any rotation-aware roof. The schema marks
+ *  it as optional on every variant that supports it, so a structural test
+ *  via `style` is enough to know whether to write it. Spread-back keeps the
+ *  rest of the roof type-safe. */
+function withBearing(roof: Roof, bearing: number): Roof {
+  switch (roof.style) {
+    case 'gable':
+    case 'hip':
+    case 'dutch_hip':
+    case 'gambrel':
+    case 'mansard':
+    case 'saltbox':
+    case 'sawtooth':
+    case 'butterfly':
+    case 'parallel_gables':
+      return { ...roof, ridge_bearing_deg: bearing };
+    default:
+      return roof;
+  }
+}
+
+function RoofParams({
+  roof,
+  onChange,
+  building,
+}: {
+  roof: Roof;
+  onChange: (r: Roof) => void;
+  building: Building;
+}): JSX.Element {
   switch (roof.style) {
     case 'flat':
       return (
@@ -71,7 +113,7 @@ function RoofParams({ roof, onChange }: { roof: Roof; onChange: (r: Roof) => voi
             value={roof.pitch_deg}
             onChange={(v) => onChange({ ...roof, pitch_deg: v })}
           />
-          <RotateOrientationRow roof={roof} onChange={onChange} />
+          <RotateOrientationRow roof={roof} onChange={onChange} building={building} />
         </>
       );
     case 'gable':
@@ -86,7 +128,7 @@ function RoofParams({ roof, onChange }: { roof: Roof; onChange: (r: Roof) => voi
             value={(roof as { pitch_deg: number }).pitch_deg}
             onChange={(v) => onChange({ ...roof, pitch_deg: v } as Roof)}
           />
-          <RotateOrientationRow roof={roof} onChange={onChange} />
+          <RotateOrientationRow roof={roof} onChange={onChange} building={building} />
           {'hip_ratio' in roof && (
             <RangeRow
               label="Hip ratio"
@@ -133,7 +175,7 @@ function RoofParams({ roof, onChange }: { roof: Roof; onChange: (r: Roof) => voi
             value={roof.break_height_m}
             onChange={(v) => onChange({ ...roof, break_height_m: v })}
           />
-          <RotateOrientationRow roof={roof} onChange={onChange} />
+          <RotateOrientationRow roof={roof} onChange={onChange} building={building} />
         </>
       );
     case 'saltbox':
@@ -158,7 +200,7 @@ function RoofParams({ roof, onChange }: { roof: Roof; onChange: (r: Roof) => voi
             value={roof.ridge_offset_pct}
             onChange={(v) => onChange({ ...roof, ridge_offset_pct: v })}
           />
-          <RotateOrientationRow roof={roof} onChange={onChange} />
+          <RotateOrientationRow roof={roof} onChange={onChange} building={building} />
         </>
       );
     case 'sawtooth':
@@ -185,7 +227,7 @@ function RoofParams({ roof, onChange }: { roof: Roof; onChange: (r: Roof) => voi
             value={roof.glazing_strip_width_m}
             onChange={(v) => onChange({ ...roof, glazing_strip_width_m: v })}
           />
-          <RotateOrientationRow roof={roof} onChange={onChange} />
+          <RotateOrientationRow roof={roof} onChange={onChange} building={building} />
         </>
       );
     case 'parallel_gables':
@@ -203,7 +245,7 @@ function RoofParams({ roof, onChange }: { roof: Roof; onChange: (r: Roof) => voi
             value={roof.pitch_count}
             onChange={(v) => onChange({ ...roof, pitch_count: Math.round(v) })}
           />
-          <RotateOrientationRow roof={roof} onChange={onChange} />
+          <RotateOrientationRow roof={roof} onChange={onChange} building={building} />
         </>
       );
     default:
@@ -259,36 +301,35 @@ function RangeRow({
   );
 }
 
-/** Single "Rotate orientation 90°" button that replaces the old ridge-axis /
- *  high-side dropdowns. Works for any roof whose schema exposes an
- *  orientation parameter:
- *    - mono: cycles high_side N → E → S → W → N
- *    - gable / hip / dutch_hip / gambrel / mansard / saltbox: toggles
- *      ridge_axis between 'longest' and 'shortest', which is geometrically
- *      a 90° swap of the ridge direction
- *  Shapes with no schema orientation (flat, pyramid, sawtooth, butterfly,
- *  cross_gabled) render nothing — they're either rotationally symmetric or
- *  await a Phase 2 schema bump. */
+/** "Rotate 90°" button for the ridge / slope direction.
+ *
+ *  Every rotation-aware roof (gable, hip, dutch_hip, gambrel, mansard,
+ *  saltbox, sawtooth, butterfly, parallel_gables) stores `ridge_bearing_deg`
+ *  — a WORLD bearing (degrees from north, [0, 180)). The generator snaps to
+ *  whichever OBB axis is currently closer to that bearing each time it
+ *  regenerates, so the ridge stays put in the user's view even as they
+ *  rotate or stretch the building. Mono uses the same idea via `high_side`.
+ *
+ *  The button flips the bearing by 90°. If the bearing hasn't been stamped
+ *  yet (e.g., a project saved before this field existed), we snapshot the
+ *  current OBB long-axis bearing first so the click does what the user
+ *  expects — flip *from the current visible orientation* — rather than from
+ *  an arbitrary default. */
 function RotateOrientationRow({
   roof,
   onChange,
-}: { roof: Roof; onChange: (r: Roof) => void }): JSX.Element | null {
-  if ('ridge_axis' in roof) {
-    const current = roof.ridge_axis;
-    const next = current === 'shortest' ? 'longest' : 'shortest';
-    return (
-      <ButtonRow
-        label="Orientation"
-        hint={current === 'shortest' ? 'Ridge along short edge' : 'Ridge along long edge'}
-        cta="Rotate 90°"
-        onClick={() => onChange({ ...roof, ridge_axis: next } as Roof)}
-      />
-    );
-  }
+  building,
+}: {
+  roof: Roof;
+  onChange: (r: Roof) => void;
+  building: Building;
+}): JSX.Element | null {
   if (roof.style === 'mono') {
     const seq: Array<'N' | 'E' | 'S' | 'W'> = ['N', 'E', 'S', 'W'];
     const currentLabel =
-      typeof roof.high_side === 'number' ? `${Math.round(roof.high_side)}°` : `High side ${roof.high_side}`;
+      typeof roof.high_side === 'number'
+        ? `${Math.round(roof.high_side)}°`
+        : `High side ${roof.high_side}`;
     return (
       <ButtonRow
         label="Orientation"
@@ -306,27 +347,58 @@ function RotateOrientationRow({
       />
     );
   }
-  // Roofs with an explicit `orientation` field (sawtooth / butterfly /
-  // parallel_gables / hip): toggle 'longest' ↔ 'shortest'.
-  if (
-    roof.style === 'butterfly' ||
-    roof.style === 'sawtooth' ||
-    roof.style === 'parallel_gables' ||
-    roof.style === 'hip'
-  ) {
-    const current = roof.orientation ?? 'longest';
-    const next = current === 'shortest' ? 'longest' : 'shortest';
-    const hint = current === 'shortest' ? 'Aligned to short edge' : 'Aligned to long edge';
-    return (
-      <ButtonRow
-        label="Orientation"
-        hint={hint}
-        cta="Rotate 90°"
-        onClick={() => onChange({ ...roof, orientation: next })}
-      />
-    );
+  if (!isRotationAware(roof)) return null;
+  const boxRotation = buildingOBBRotation(building);
+  const currentBearing =
+    typeof (roof as { ridge_bearing_deg?: number }).ridge_bearing_deg === 'number'
+      ? ((roof as { ridge_bearing_deg: number }).ridge_bearing_deg as number)
+      : effectiveBearingFromLegacyFields(roof, boxRotation);
+  const nextBearing = (currentBearing + 90) % 180;
+  const axis = pickAxisForBearing(currentBearing, boxRotation);
+  return (
+    <ButtonRow
+      label="Orientation"
+      hint={`Ridge ${formatBearing(currentBearing)} · along ${axis === 'longest' ? 'long' : 'short'} edge`}
+      cta="Rotate 90°"
+      onClick={() => onChange({ ...roof, ridge_bearing_deg: nextBearing } as Roof)}
+    />
+  );
+}
+
+function isRotationAware(roof: Roof): boolean {
+  switch (roof.style) {
+    case 'gable':
+    case 'hip':
+    case 'dutch_hip':
+    case 'gambrel':
+    case 'mansard':
+    case 'saltbox':
+    case 'sawtooth':
+    case 'butterfly':
+    case 'parallel_gables':
+      return true;
+    default:
+      return false;
   }
-  return null;
+}
+
+/** Recover the world bearing implied by a roof that pre-dates
+ *  `ridge_bearing_deg` and only carries the OBB-relative `ridge_axis` or
+ *  `orientation` enum. */
+function effectiveBearingFromLegacyFields(roof: Roof, boxRotation: number): number {
+  const isShort =
+    ('ridge_axis' in roof && roof.ridge_axis === 'shortest') ||
+    ('orientation' in roof && roof.orientation === 'shortest');
+  const axisAngleRad = isShort ? boxRotation + Math.PI / 2 : boxRotation;
+  return mathAngleToRidgeBearing(axisAngleRad);
+}
+
+function formatBearing(bearingDeg: number): string {
+  const b = ((bearingDeg % 180) + 180) % 180;
+  // Snap labels to cardinals when close (within 5°); otherwise show degrees.
+  if (b < 5 || b > 175) return 'N–S';
+  if (b > 85 && b < 95) return 'E–W';
+  return `${Math.round(b)}°`;
 }
 
 function ButtonRow({

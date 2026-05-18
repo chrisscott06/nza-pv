@@ -3,7 +3,13 @@
 // scenarios here; L-shape coverage falls back to the OBB (a known limitation
 // documented in the brief escalation list).
 
-import { type Building, type Polygon, metersToLngLat, polygonAreaM2 } from '@nza-pv/shared';
+import {
+  type Building,
+  type Polygon,
+  type Roof,
+  metersToLngLat,
+  polygonAreaM2,
+} from '@nza-pv/shared';
 import { describe, expect, it } from 'vitest';
 import { defaultRoofForStyle } from './presets.js';
 import { regenerateFaces } from './regenerate.js';
@@ -122,7 +128,12 @@ describe('roof stays on the building footprint at any rotation', () => {
   // bounding box must match the footprint's XY bounding box to within a few
   // millimetres at any rotation. This is the user-reported "roof flies off
   // the building after rotation" check.
-  function rectBBox(rect: Polygon): { minLng: number; maxLng: number; minLat: number; maxLat: number } {
+  function rectBBox(rect: Polygon): {
+    minLng: number;
+    maxLng: number;
+    minLat: number;
+    maxLat: number;
+  } {
     const ring = rect.coordinates[0] ?? [];
     let minLng = Number.POSITIVE_INFINITY;
     let maxLng = Number.NEGATIVE_INFINITY;
@@ -181,6 +192,57 @@ describe('roof stays on the building footprint at any rotation', () => {
     }
   }
 });
+
+describe('world-anchored ridge bearing survives building rotation', () => {
+  // With `ridge_bearing_deg` set to a fixed world direction, rotating the
+  // building 90° must NOT rotate the ridge in world coords — the generator
+  // is supposed to snap to whichever OBB axis is closer to the saved
+  // bearing, swapping length↔width as needed. Without this, the ridge would
+  // spin with the building (the pre-fix behavior).
+  // Sawtooth / butterfly are intentionally omitted: their slopes are asymmetric
+  // (glazing strip vs. valley direction), and the OBB has 180° symmetry, so a
+  // 90° building rotation can swap N↔S or E↔W on those without it being a
+  // bug in the bearing logic. Symmetric roofs (gable, hip, M-roof, …) don't
+  // suffer this and are the ones the user explicitly flagged.
+  for (const style of ['gable', 'hip', 'gambrel', 'mansard', 'parallel_gables'] as const) {
+    it(`${style} with ridge_bearing_deg=90 keeps facing N/S after a 90° building rotation`, () => {
+      const rect0 = makeRect(20, 10, 0); // long axis E–W in world
+      const rect90 = makeRect(20, 10, Math.PI / 2); // long axis N–S in world
+      const roof0: Roof = withBearing(defaultRoofForStyle(style), 90);
+      const roof90: Roof = withBearing(defaultRoofForStyle(style), 90);
+      const facesAt0 = regenerateFaces({ ...makeBuilding(rect0), roof: roof0 });
+      const facesAt90 = regenerateFaces({ ...makeBuilding(rect90), roof: roof90 });
+      const pvCards0 = facesAt0
+        .filter((f) => f.is_pv_eligible)
+        .map((f) => f.cardinal)
+        .sort();
+      const pvCards90 = facesAt90
+        .filter((f) => f.is_pv_eligible)
+        .map((f) => f.cardinal)
+        .sort();
+      // Bearing 90° (E–W ridge) means the slopes face N and S in both
+      // building orientations — the cardinal set must match.
+      expect(pvCards90).toEqual(pvCards0);
+    });
+  }
+});
+
+function withBearing(roof: Roof, bearingDeg: number): Roof {
+  switch (roof.style) {
+    case 'gable':
+    case 'hip':
+    case 'dutch_hip':
+    case 'gambrel':
+    case 'mansard':
+    case 'saltbox':
+    case 'sawtooth':
+    case 'butterfly':
+    case 'parallel_gables':
+      return { ...roof, ridge_bearing_deg: bearingDeg };
+    default:
+      return roof;
+  }
+}
 
 describe('all 12 presets generate at least one PV-eligible face on a typical rect', () => {
   const rect = makeRect(12, 6);

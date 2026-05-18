@@ -28,51 +28,83 @@ export type GeneratorInput = {
 
 const DEG = Math.PI / 180;
 
-/** All roofs with a sensible "rotate ridge 90°" semantic — pulled either from
- *  the legacy `ridge_axis` field (gable / hip / mansard / etc.) or from the
- *  newer `orientation` field (sawtooth / butterfly / parallel_gables). */
-function rotated(roof: Roof): 'longest' | 'shortest' | undefined {
+/** Resolve a rotation-aware roof's effective OBB-local orientation.
+ *
+ *  Precedence:
+ *  1. `ridge_bearing_deg` (world bearing, degrees from north) — like mono's
+ *     `high_side`, the bearing is fixed in WORLD coordinates. When the
+ *     building rotates, the OBB axes spin underneath; we snap to whichever
+ *     OBB axis is currently closer to the saved world bearing. The result is
+ *     that the ridge stays put in the user's view even as they rotate the
+ *     building, matching how mono behaves.
+ *  2. Legacy `ridge_axis` ('shortest') or `orientation` ('shortest') — these
+ *     are OBB-relative and still load correctly from saved files that
+ *     pre-date `ridge_bearing_deg`.
+ *  3. Default 'longest' — ridge along the building's long axis. */
+function rotated(roof: Roof, boxRotation: number): 'longest' | 'shortest' {
+  if ('ridge_bearing_deg' in roof && typeof roof.ridge_bearing_deg === 'number') {
+    return pickAxisForBearing(roof.ridge_bearing_deg, boxRotation);
+  }
   if ('ridge_axis' in roof && roof.ridge_axis === 'shortest') return 'shortest';
   if ('orientation' in roof && roof.orientation === 'shortest') return 'shortest';
   return 'longest';
 }
 
+/** Given a desired world ridge bearing (degrees from north, 0=N, 90=E) and
+ *  the current OBB rotation (math angle CCW from world +X of the OBB's long
+ *  axis), pick whichever OBB axis is closer to the bearing. Both axes have
+ *  180° symmetry, so we collapse to [0, π/2). */
+export function pickAxisForBearing(
+  bearingDeg: number,
+  boxRotation: number,
+): 'longest' | 'shortest' {
+  // Convert world bearing (CW from north) to math angle (CCW from +X):
+  // bearing 0 (N) = math π/2; bearing 90 (E) = math 0.
+  const bearingMath = Math.PI / 2 - (bearingDeg * Math.PI) / 180;
+  // Angle between the requested direction and the OBB long axis, folded into
+  // [0, π/2] so that opposite directions count as the same axis.
+  let diff = (((bearingMath - boxRotation) % Math.PI) + Math.PI) % Math.PI;
+  if (diff > Math.PI / 2) diff = Math.PI - diff;
+  return diff <= Math.PI / 4 ? 'longest' : 'shortest';
+}
+
 export function generateRoof(roof: Roof, input: GeneratorInput): LocalFace[] {
+  const r = input.boxRotation;
   switch (roof.style) {
     case 'flat':
       return flat(input, roof.parapet_height_m);
     case 'mono':
       return mono(input, roof.pitch_deg, roof.high_side);
     case 'gable':
-      return withOrientation(gable(input, roof.pitch_deg), rotated(roof));
+      return withOrientation(gable(input, roof.pitch_deg), rotated(roof, r));
     case 'hip':
-      return withOrientation(hip(input, roof.pitch_deg), rotated(roof));
+      return withOrientation(hip(input, roof.pitch_deg), rotated(roof, r));
     case 'dutch_hip':
-      return withOrientation(dutchHip(input, roof.pitch_deg, roof.hip_ratio), rotated(roof));
+      return withOrientation(dutchHip(input, roof.pitch_deg, roof.hip_ratio), rotated(roof, r));
     case 'gambrel':
       return withOrientation(
         gambrel(input, roof.lower_pitch_deg, roof.upper_pitch_deg, roof.break_height_m),
-        rotated(roof),
+        rotated(roof, r),
       );
     case 'mansard':
       return withOrientation(
         mansard(input, roof.lower_pitch_deg, roof.upper_pitch_deg, roof.break_height_m),
-        rotated(roof),
+        rotated(roof, r),
       );
     case 'saltbox':
       return withOrientation(
         saltbox(input, roof.front_pitch_deg, roof.back_pitch_deg, roof.ridge_offset_pct),
-        rotated(roof),
+        rotated(roof, r),
       );
     case 'sawtooth':
       return withOrientation(
         sawtooth(input, roof.pitch_count, roof.pitch_deg, roof.glazing_strip_width_m),
-        roof.orientation,
+        rotated(roof, r),
       );
     case 'butterfly':
       return withOrientation(
         butterfly(input, roof.pitch_deg, roof.valley_depth_m),
-        roof.orientation,
+        rotated(roof, r),
       );
     case 'pyramid':
       return pyramid(input, roof.pitch_deg);
@@ -81,7 +113,7 @@ export function generateRoof(roof: Roof, input: GeneratorInput): LocalFace[] {
     case 'parallel_gables':
       return withOrientation(
         parallelGables(input, roof.pitch_count, roof.pitch_deg),
-        roof.orientation,
+        rotated(roof, r),
       );
   }
 }
@@ -410,12 +442,7 @@ function dutchHip(
   ];
 }
 
-function gambrel(
-  input: GeneratorInput,
-  lower: number,
-  upper: number,
-  breakH: number,
-): LocalFace[] {
+function gambrel(input: GeneratorInput, lower: number, upper: number, breakH: number): LocalFace[] {
   const { halfL, halfW, eave } = input;
   // Lower slopes from eave up & in to break-height, upper slopes to ridge.
   const z0 = eave;
@@ -777,10 +804,7 @@ function crossGabled(input: GeneratorInput, pitch: number): LocalFace[] {
   // mid-point. True L-shape support waits for straight-skeleton.
   const main = gable(input, pitch);
   // Transverse: build a smaller gable rotated 90° at the centre, then add.
-  const cross = gable(
-    { halfL: halfW, halfW: halfL * 0.3, eave, boxRotation },
-    pitch,
-  ).map((f) => ({
+  const cross = gable({ halfL: halfW, halfW: halfL * 0.3, eave, boxRotation }, pitch).map((f) => ({
     role: f.role,
     ring: f.ring.map((p) => rotateZ(p, Math.PI / 2)),
   }));
