@@ -2,6 +2,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import maplibregl, { type StyleSpecification } from 'maplibre-gl';
 import { useEffect, useRef, useState } from 'react';
 import { installLayers, setExtrusionVisible, updateBuildings } from '../lib/drawing/mapLayers.js';
+import { RoofLayer } from '../lib/drawing/roofLayer.js';
 import { useMapTools } from '../lib/drawing/useMapTools.js';
 import { useProject } from '../store/projectStore.js';
 
@@ -32,9 +33,12 @@ const DEFAULT_ZOOM = 17;
 export function MapView(): JSX.Element {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const roofLayerRef = useRef<RoofLayer | null>(null);
   const initialView = useProject((s) => s.project?.view?.map ?? null);
   const setCamera = useProject((s) => s.setCamera);
   const view = useProject((s) => s.view);
+  const buildings = useProject((s) => s.project?.buildings ?? []);
+  const selection = useProject((s) => s.selection);
   // Used to re-fire useMapTools' building sync once the map style has actually
   // finished loading — without this, a fresh map mount can race the project
   // load and the initial buildings render with empty source data.
@@ -136,10 +140,10 @@ export function MapView(): JSX.Element {
 
   useMapTools(mapRef);
 
-  // React to the global 2D / 3D toggle. In 3D the map tilts to ~60° and
-  // shows the building-extrusion layer; drag-rotate is enabled so the user
-  // can spin around. In 2D the camera flattens back to north-up top-down
-  // and the extrusions hide.
+  // React to the global 2D / 3D toggle. In 3D the map tilts to ~60°, shows
+  // the building-extrusion layer (walls), and mounts a custom 3D layer for
+  // the actual sloped roof faces. In 2D it all reverses to a north-up plan
+  // view with just the coral outlines.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -149,16 +153,49 @@ export function MapView(): JSX.Element {
         map.dragRotate.enable();
         map.touchPitch.enable();
         setExtrusionVisible(map, true);
+        // Mount the custom roof-faces layer on top of the extrusion layer
+        // (added last → renders last → sits on top).
+        if (!roofLayerRef.current) {
+          const layer = new RoofLayer();
+          roofLayerRef.current = layer;
+          if (!map.getLayer(layer.id)) {
+            // The maplibre type for `addLayer` doesn't strictly include the
+            // CustomLayerInterface shape; the runtime supports it fine.
+            map.addLayer(layer as unknown as maplibregl.AddLayerObject);
+          }
+          layer.setBuildings(
+            useProject.getState().project?.buildings ?? [],
+            selection.kind === 'building' || selection.kind === 'face' ? selection.buildingId : null,
+          );
+        }
       } else {
         map.easeTo({ pitch: 0, bearing: 0, duration: 700 });
         map.dragRotate.disable();
         map.touchPitch.disable();
         setExtrusionVisible(map, false);
+        if (roofLayerRef.current && map.getLayer(roofLayerRef.current.id)) {
+          map.removeLayer(roofLayerRef.current.id);
+        }
+        roofLayerRef.current = null;
       }
     };
     if (map.getLayer('buildings-extrusion')) apply();
     else map.once('load', apply);
+    // `selection` intentionally omitted — the building-update effect below
+    // handles re-styling the roof faces when selection changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
+
+  // Push fresh roof geometry into the custom layer whenever the buildings or
+  // selection change while we're in 3D. Cheap to call when there is no layer
+  // (it just no-ops).
+  useEffect(() => {
+    const layer = roofLayerRef.current;
+    if (!layer) return;
+    const selectedId =
+      selection.kind === 'building' || selection.kind === 'face' ? selection.buildingId : null;
+    layer.setBuildings(buildings, selectedId);
+  }, [buildings, selection]);
 
   return <div ref={container} className="map-root" data-testid="map-root" />;
 }
