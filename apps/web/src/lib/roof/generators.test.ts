@@ -194,6 +194,7 @@ describe('all 12 presets generate at least one PV-eligible face on a typical rec
     'mansard',
     'saltbox',
     'sawtooth',
+    'parallel_gables',
     'butterfly',
     'pyramid',
     'cross_gabled',

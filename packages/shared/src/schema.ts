@@ -79,7 +79,13 @@ export type RoofGable = {
   ridge_rotation_deg?: number;
 };
 
-export type RoofHip = { style: 'hip'; pitch_deg: number };
+export type RoofHip = {
+  style: 'hip';
+  pitch_deg: number;
+  /** 'longest' (default) — ridge runs along the long axis; 'shortest' — ridge
+   *  swaps to the short axis (a 90° rotation of the whole roof shape). */
+  orientation?: 'longest' | 'shortest';
+};
 
 export type RoofDutchHip = {
   style: 'dutch_hip';
@@ -139,6 +145,17 @@ export type RoofPyramid = { style: 'pyramid'; pitch_deg: number };
 
 export type RoofCrossGabled = { style: 'cross_gabled'; pitch_deg: number };
 
+/** Parallel gables (also known as ridge-and-furrow or M-roof) — `pitch_count`
+ *  full A-frame gable bays repeated across the long axis, all ridges
+ *  parallel. Like sawtooth, but each bay is a symmetric triangle instead
+ *  of a slope + glazing strip. */
+export type RoofParallelGables = {
+  style: 'parallel_gables';
+  pitch_count: number;
+  pitch_deg: number;
+  orientation?: 'longest' | 'shortest';
+};
+
 export type Roof =
   | RoofFlat
   | RoofMono
@@ -151,7 +168,8 @@ export type Roof =
   | RoofSawtooth
   | RoofButterfly
   | RoofPyramid
-  | RoofCrossGabled;
+  | RoofCrossGabled
+  | RoofParallelGables;
 
 export type RoofStyle = Roof['style'];
 
@@ -165,6 +183,7 @@ export const ROOF_STYLES: readonly RoofStyle[] = [
   'mansard',
   'saltbox',
   'sawtooth',
+  'parallel_gables',
   'butterfly',
   'pyramid',
   'cross_gabled',

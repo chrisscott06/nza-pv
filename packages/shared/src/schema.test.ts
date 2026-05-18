@@ -15,8 +15,8 @@ import {
 } from './index.js';
 
 describe('schema', () => {
-  it('exposes all 12 roof styles', () => {
-    expect(ROOF_STYLES).toHaveLength(12);
+  it('exposes all 13 roof styles', () => {
+    expect(ROOF_STYLES).toHaveLength(13);
   });
 
   it('isProjectFile rejects non-objects and wrong versions', () => {

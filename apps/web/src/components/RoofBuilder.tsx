@@ -188,6 +188,24 @@ function RoofParams({ roof, onChange }: { roof: Roof; onChange: (r: Roof) => voi
           <RotateOrientationRow roof={roof} onChange={onChange} />
         </>
       );
+    case 'parallel_gables':
+      return (
+        <>
+          <PitchSlider
+            value={roof.pitch_deg}
+            onChange={(v) => onChange({ ...roof, pitch_deg: v })}
+          />
+          <RangeRow
+            label="Bays"
+            min={2}
+            max={8}
+            step={1}
+            value={roof.pitch_count}
+            onChange={(v) => onChange({ ...roof, pitch_count: Math.round(v) })}
+          />
+          <RotateOrientationRow roof={roof} onChange={onChange} />
+        </>
+      );
     default:
       return <></>;
   }
@@ -288,17 +306,17 @@ function RotateOrientationRow({
       />
     );
   }
-  if (roof.style === 'butterfly' || roof.style === 'sawtooth') {
+  // Roofs with an explicit `orientation` field (sawtooth / butterfly /
+  // parallel_gables / hip): toggle 'longest' ↔ 'shortest'.
+  if (
+    roof.style === 'butterfly' ||
+    roof.style === 'sawtooth' ||
+    roof.style === 'parallel_gables' ||
+    roof.style === 'hip'
+  ) {
     const current = roof.orientation ?? 'longest';
     const next = current === 'shortest' ? 'longest' : 'shortest';
-    const hint =
-      roof.style === 'butterfly'
-        ? current === 'shortest'
-          ? 'Valley along short edge'
-          : 'Valley along long edge'
-        : current === 'shortest'
-          ? 'Pitches across short edge'
-          : 'Pitches across long edge';
+    const hint = current === 'shortest' ? 'Aligned to short edge' : 'Aligned to long edge';
     return (
       <ButtonRow
         label="Orientation"

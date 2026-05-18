@@ -28,6 +28,15 @@ export type GeneratorInput = {
 
 const DEG = Math.PI / 180;
 
+/** All roofs with a sensible "rotate ridge 90°" semantic — pulled either from
+ *  the legacy `ridge_axis` field (gable / hip / mansard / etc.) or from the
+ *  newer `orientation` field (sawtooth / butterfly / parallel_gables). */
+function rotated(roof: Roof): 'longest' | 'shortest' | undefined {
+  if ('ridge_axis' in roof && roof.ridge_axis === 'shortest') return 'shortest';
+  if ('orientation' in roof && roof.orientation === 'shortest') return 'shortest';
+  return 'longest';
+}
+
 export function generateRoof(roof: Roof, input: GeneratorInput): LocalFace[] {
   switch (roof.style) {
     case 'flat':
@@ -35,17 +44,26 @@ export function generateRoof(roof: Roof, input: GeneratorInput): LocalFace[] {
     case 'mono':
       return mono(input, roof.pitch_deg, roof.high_side);
     case 'gable':
-      return gable(input, roof.pitch_deg);
+      return withOrientation(gable(input, roof.pitch_deg), rotated(roof));
     case 'hip':
-      return hip(input, roof.pitch_deg);
+      return withOrientation(hip(input, roof.pitch_deg), rotated(roof));
     case 'dutch_hip':
-      return dutchHip(input, roof.pitch_deg, roof.hip_ratio);
+      return withOrientation(dutchHip(input, roof.pitch_deg, roof.hip_ratio), rotated(roof));
     case 'gambrel':
-      return gambrel(input, roof.lower_pitch_deg, roof.upper_pitch_deg, roof.break_height_m);
+      return withOrientation(
+        gambrel(input, roof.lower_pitch_deg, roof.upper_pitch_deg, roof.break_height_m),
+        rotated(roof),
+      );
     case 'mansard':
-      return mansard(input, roof.lower_pitch_deg, roof.upper_pitch_deg, roof.break_height_m);
+      return withOrientation(
+        mansard(input, roof.lower_pitch_deg, roof.upper_pitch_deg, roof.break_height_m),
+        rotated(roof),
+      );
     case 'saltbox':
-      return saltbox(input, roof.front_pitch_deg, roof.back_pitch_deg, roof.ridge_offset_pct);
+      return withOrientation(
+        saltbox(input, roof.front_pitch_deg, roof.back_pitch_deg, roof.ridge_offset_pct),
+        rotated(roof),
+      );
     case 'sawtooth':
       return withOrientation(
         sawtooth(input, roof.pitch_count, roof.pitch_deg, roof.glazing_strip_width_m),
@@ -60,6 +78,11 @@ export function generateRoof(roof: Roof, input: GeneratorInput): LocalFace[] {
       return pyramid(input, roof.pitch_deg);
     case 'cross_gabled':
       return crossGabled(input, roof.pitch_deg);
+    case 'parallel_gables':
+      return withOrientation(
+        parallelGables(input, roof.pitch_count, roof.pitch_deg),
+        roof.orientation,
+      );
   }
 }
 
@@ -74,6 +97,7 @@ export function isStyle(style: RoofStyle | string): style is RoofStyle {
     'mansard',
     'saltbox',
     'sawtooth',
+    'parallel_gables',
     'butterfly',
     'pyramid',
     'cross_gabled',
@@ -639,6 +663,67 @@ function sawtooth(
         [x2, -halfW, zLow],
         [x2, halfW, zLow],
         [x1, halfW, zHigh],
+      ],
+    });
+  }
+  return faces;
+}
+
+/** Multiple full A-frame gable bays repeated across the long axis, all
+ *  ridges parallel (ridge-and-furrow / M-roof / parallel gables). Each bay
+ *  is a symmetric triangle profile in section. */
+function parallelGables(
+  { halfL, halfW, eave }: GeneratorInput,
+  count: number,
+  pitch: number,
+): LocalFace[] {
+  const bayCount = Math.max(2, Math.floor(count));
+  const totalSpan = 2 * halfL;
+  const bayWidth = totalSpan / bayCount;
+  const halfBay = bayWidth / 2;
+  const rise = halfBay * Math.tan(pitch * DEG);
+  const z1 = eave + rise;
+  const faces: LocalFace[] = [];
+  for (let i = 0; i < bayCount; i++) {
+    const x0 = -halfL + i * bayWidth;
+    const xMid = x0 + halfBay;
+    const x2 = x0 + bayWidth;
+    // Front slope (rises from x0 up to ridge at xMid).
+    faces.push({
+      role: 'main',
+      ring: [
+        [x0, -halfW, eave],
+        [xMid, -halfW, z1],
+        [xMid, halfW, z1],
+        [x0, halfW, eave],
+      ],
+    });
+    // Back slope (drops from ridge at xMid down to x2).
+    faces.push({
+      role: 'main',
+      ring: [
+        [xMid, -halfW, z1],
+        [x2, -halfW, eave],
+        [x2, halfW, eave],
+        [xMid, halfW, z1],
+      ],
+    });
+    // Triangular gable end walls at the building's two short ends (one
+    // triangle per bay on each end).
+    faces.push({
+      role: 'gable_end_wall',
+      ring: [
+        [x0, -halfW, eave],
+        [x2, -halfW, eave],
+        [xMid, -halfW, z1],
+      ],
+    });
+    faces.push({
+      role: 'gable_end_wall',
+      ring: [
+        [x2, halfW, eave],
+        [x0, halfW, eave],
+        [xMid, halfW, z1],
       ],
     });
   }

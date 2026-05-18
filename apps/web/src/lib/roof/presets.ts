@@ -50,6 +50,8 @@ export function defaultRoofForStyle(style: RoofStyle, previous?: Roof): Roof {
       return { style: 'pyramid', pitch_deg: carryPitch };
     case 'cross_gabled':
       return { style: 'cross_gabled', pitch_deg: carryPitch };
+    case 'parallel_gables':
+      return { style: 'parallel_gables', pitch_count: 3, pitch_deg: 30 };
   }
 }
 
@@ -67,6 +69,7 @@ const LABELS: Record<RoofStyle, string> = {
   mansard: 'Mansard',
   saltbox: 'Saltbox',
   sawtooth: 'Sawtooth',
+  parallel_gables: 'M-roof',
   butterfly: 'Butterfly',
   pyramid: 'Pyramid',
   cross_gabled: 'Cross gabled',
@@ -150,6 +153,17 @@ export function presetThumbnail(style: RoofStyle): string {
         `<rect x='12' y='28' width='36' height='22' fill='${WALL}' stroke='${STROKE}'/>` +
           `<polygon points='8,30 30,14 52,30' fill='${ROOF}' stroke='${STROKE}'/>` +
           `<polygon points='22,38 30,22 38,38' fill='${ROOF}' stroke='${STROKE}'/>`,
+      );
+    case 'parallel_gables':
+      // Three full A-frame gables in a row — like sawtooth but symmetric peaks.
+      return svg(
+        `<rect x='6' y='40' width='48' height='10' fill='${WALL}' stroke='${STROKE}'/>` +
+          `<polygon points='6,40 14,24 22,40' fill='${ROOF}' stroke='${STROKE}'/>` +
+          `<polygon points='22,40 30,24 38,40' fill='${ROOF}' stroke='${STROKE}'/>` +
+          `<polygon points='38,40 46,24 54,40' fill='${ROOF}' stroke='${STROKE}'/>` +
+          `<line x1='14' y1='24' x2='14' y2='40' stroke='${RIDGE}' stroke-width='1'/>` +
+          `<line x1='30' y1='24' x2='30' y2='40' stroke='${RIDGE}' stroke-width='1'/>` +
+          `<line x1='46' y1='24' x2='46' y2='40' stroke='${RIDGE}' stroke-width='1'/>`,
       );
   }
 }

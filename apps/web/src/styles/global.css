@@ -468,6 +468,56 @@ a:hover {
   box-shadow: var(--shadow-sm);
 }
 
+.side-panel-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-bg);
+}
+.side-panel-tab {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--c-text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 10px 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: color 100ms, border-color 100ms, background 100ms;
+}
+.side-panel-tab:hover:not(:disabled) {
+  color: var(--c-text);
+  background: var(--c-panel-2);
+}
+.side-panel-tab.active {
+  color: var(--c-text);
+  border-bottom-color: var(--c-accent);
+  background: var(--c-panel);
+}
+.side-panel-tab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.side-panel-tab .tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  background: var(--c-panel-2);
+  border-radius: 9px;
+  color: var(--c-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .side-panel .section {
   padding: var(--s-3);
   border-bottom: 1px solid var(--c-border);
