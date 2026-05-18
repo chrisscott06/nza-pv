@@ -2,7 +2,12 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import maplibregl, { type StyleSpecification } from 'maplibre-gl';
 import { useEffect, useRef, useState } from 'react';
 import { setActiveMap } from '../lib/drawing/mapBridge.js';
-import { installLayers, setExtrusionVisible, updateBuildings } from '../lib/drawing/mapLayers.js';
+import {
+  installLayers,
+  setExtrusionVisible,
+  setFootprintFillVisible,
+  updateBuildings,
+} from '../lib/drawing/mapLayers.js';
 import { RoofLayer } from '../lib/drawing/roofLayer.js';
 import { useMapTools } from '../lib/drawing/useMapTools.js';
 import { useProject } from '../store/projectStore.js';
@@ -163,6 +168,11 @@ export function MapView(): JSX.Element {
         // roof's lighting; keeping the maplibre extrusion visible would
         // double-draw flat-shaded cream on top of the Three.js mesh.
         setExtrusionVisible(map, false);
+        // Hide the 2D coral fill + line so they don't bleed through the
+        // Three.js building (visible inside open roof shapes / under the
+        // silhouette stroke at ground level). Opacity-0 instead of layer
+        // hide so click-to-select still works via `queryRenderedFeatures`.
+        setFootprintFillVisible(map, false);
         // Mount the custom roof-faces layer on top of the extrusion layer
         // (added last → renders last → sits on top).
         if (!roofLayerRef.current) {
@@ -185,6 +195,7 @@ export function MapView(): JSX.Element {
         map.dragRotate.disable();
         map.touchPitch.disable();
         setExtrusionVisible(map, false);
+        setFootprintFillVisible(map, true);
         if (roofLayerRef.current && map.getLayer(roofLayerRef.current.id)) {
           map.removeLayer(roofLayerRef.current.id);
         }

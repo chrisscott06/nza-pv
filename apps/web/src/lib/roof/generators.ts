@@ -722,6 +722,27 @@ function sawtooth(
         [x1, halfW, zHigh],
       ],
     });
+    // Triangular end-wall infill on each short end of the bay (y = ±halfW).
+    // Without these the sawtooth profile leaves an open triangle above the
+    // wall on each end, and the camera sees straight through to the
+    // building interior. Modeled as gable_end_wall so the eligibility
+    // logic flags them non-PV (they're vertical).
+    faces.push({
+      role: 'gable_end_wall',
+      ring: [
+        [x0, -halfW, zLow],
+        [x2, -halfW, zLow],
+        [x1, -halfW, zHigh],
+      ],
+    });
+    faces.push({
+      role: 'gable_end_wall',
+      ring: [
+        [x2, halfW, zLow],
+        [x0, halfW, zLow],
+        [x1, halfW, zHigh],
+      ],
+    });
   }
   return faces;
 }

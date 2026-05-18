@@ -62,7 +62,12 @@ export function installLayers(map: maplibregl.Map): void {
     source: BUILDINGS_SRC,
     layout: { visibility: 'none' },
     paint: {
-      'fill-extrusion-color': ['case', ['boolean', ['get', 'selected'], false], '#fff1cf', '#f0ebe5'],
+      'fill-extrusion-color': [
+        'case',
+        ['boolean', ['get', 'selected'], false],
+        '#fff1cf',
+        '#f0ebe5',
+      ],
       'fill-extrusion-height': ['get', 'height'],
       'fill-extrusion-base': 0,
       'fill-extrusion-opacity': 0.9,
@@ -111,6 +116,27 @@ export function updateBuildings(
 export function setExtrusionVisible(map: maplibregl.Map, visible: boolean): void {
   if (!map.getLayer('buildings-extrusion')) return;
   map.setLayoutProperty('buildings-extrusion', 'visibility', visible ? 'visible' : 'none');
+}
+
+/** In 3D mode the Three.js RoofLayer draws the entire building (walls + roof
+ *  + outlines), so the maplibre 2D coral fill / line layers are pure
+ *  bleed-through — they paint pink under the building and trace a line at
+ *  ground level that cuts across the silhouette stroke. Drop their opacity
+ *  to 0 instead of hiding the layers entirely so `queryRenderedFeatures`
+ *  still picks up clicks on the building footprint. */
+export function setFootprintFillVisible(map: maplibregl.Map, visible: boolean): void {
+  if (map.getLayer('buildings-fill')) {
+    map.setPaintProperty(
+      'buildings-fill',
+      'fill-opacity',
+      visible
+        ? (['case', ['boolean', ['get', 'selected'], false], 0.55, 0.42] as unknown as number)
+        : 0,
+    );
+  }
+  if (map.getLayer('buildings-line')) {
+    map.setPaintProperty('buildings-line', 'line-opacity', visible ? 1 : 0);
+  }
 }
 
 export function setDraft(map: maplibregl.Map, polygon: Polygon | null): void {

@@ -1,17 +1,14 @@
 // MapLibre custom 3D layer that draws our buildings using Three.js over the
-// satellite map. Walls AND roof faces both live here now, sharing the same
-// material + lighting so the building reads as a single continuous surface
-// rather than a coloured roof sitting on a flat cream base. Outlines use
-// the fat-line shader from three/examples (LineSegments2) so we get a
-// proper thick stroke instead of WebGL's clamped 1px `gl.lineWidth`.
+// satellite map. Walls + roof faces share one material + lighting so the
+// building reads as a single continuous surface, and the outline is
+// recomputed per frame: edges between a front-facing and a back-facing
+// neighbour become the building's silhouette (thick), everything else
+// stays as a thin interior crease. That way as the user rotates the
+// camera the thick stroke wraps the actual visible outline (up the wall
+// corners on one side, across the roof, down the sawtooth on the other,
+// along the bottom), not a fixed set of footprint edges.
 
-import {
-  type Building,
-  ensureCCW,
-  lngLatToMeters,
-  polygonCentroidLngLat,
-  type RoofFace,
-} from '@nza-pv/shared';
+import { type Building, ensureCCW, lngLatToMeters, polygonCentroidLngLat } from '@nza-pv/shared';
 import maplibregl from 'maplibre-gl';
 import * as THREE from 'three';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
@@ -19,25 +16,44 @@ import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 
 // One cream for the whole building — walls and roof faces. Variation comes
-// from the directional light hitting different face angles, the same way
-// it would in a real architect's massing model. The warm-cream highlight
-// only swaps in when the user has the building selected.
+// from the directional light hitting different face angles. The warm-cream
+// highlight only swaps in when the user has the building selected.
 const BUILDING_COLOR = 0xf0ebe5;
 const BUILDING_HIGHLIGHT = 0xfff1cf;
-// Stroke colours and pixel widths for the fat-line outline pass. The
-// silhouette (wall corners + eaves) gets the heavier stroke so the
-// building reads as a single boxy shape; ridges / hips / gambrel breaks
-// get the lighter crease stroke so they don't fight the silhouette.
 const EDGE_OUTLINE = 0x141618;
-const EDGE_CREASE = 0x3a3d42;
+const EDGE_CREASE = 0x6a6d72;
 const OUTLINE_WIDTH_PX = 3;
-const CREASE_WIDTH_PX = 1.5;
+const CREASE_WIDTH_PX = 1.2;
 
-// We don't `implements maplibregl.CustomLayerInterface` because the maplibre
-// type for `render` references gl-matrix's `mat4` (a Float32Array), and the
-// matching signature trips a structural check we don't gain anything from.
-// The shape we expose at runtime is exactly what maplibre's custom-layer
-// dispatcher expects.
+// Dedup tolerance for matching vertices across faces (in metres, ≈ 0.5 mm).
+const POS_QUANT = 2000;
+
+/** A planar polygon face — a wall quad or a roof face. */
+type FacePart = {
+  ring: THREE.Vector3[];
+  normal: THREE.Vector3;
+};
+
+/** An undirected edge with the (1 or 2) adjacent face indices that share
+ *  it. Boundary edges (1 neighbour) are always silhouette; interior edges
+ *  (2 neighbours) are silhouette only when neighbour normals point on
+ *  opposite sides of the view direction. */
+type EdgeRec = {
+  a: THREE.Vector3;
+  b: THREE.Vector3;
+  faces: number[];
+};
+
+/** A per-building bundle of: visible meshes (walls + roof), the edge map
+ *  used for silhouette classification, and the two LineSegments2 objects
+ *  whose geometry we rewrite each frame. */
+type BuildingDraw = {
+  parts: FacePart[];
+  edges: EdgeRec[];
+  silhouette: LineSegments2;
+  crease: LineSegments2;
+};
+
 export class RoofLayer {
   id = 'roof-3d';
   type = 'custom' as const;
@@ -49,10 +65,10 @@ export class RoofLayer {
   private map?: maplibregl.Map;
   private origin?: maplibregl.MercatorCoordinate;
   private group = new THREE.Group();
-  /** LineMaterial computes fat-line width in screen space, so it needs the
-   *  current canvas pixel size every frame. We collect every material we
-   *  create here and refresh `resolution` from `render()`. */
-  private lineMaterials: LineMaterial[] = [];
+  private draws: BuildingDraw[] = [];
+  /** Re-used per frame to avoid GC churn. */
+  private viewDir = new THREE.Vector3();
+  private toEdge = new THREE.Vector3();
 
   onAdd(map: maplibregl.Map, gl: WebGLRenderingContext | WebGL2RenderingContext): void {
     this.map = map;
@@ -81,38 +97,19 @@ export class RoofLayer {
       this.origin = undefined;
       return;
     }
-    // Use first building's footprint centroid as a stable origin for the
-    // metres frame the meshes live in. The transform in `render()` maps that
-    // origin to its mercator location every frame.
     const originLngLat = polygonCentroidLngLat(buildings[0]!.footprint);
     this.origin = maplibregl.MercatorCoordinate.fromLngLat([originLngLat[0], originLngLat[1]], 0);
     for (const b of buildings) {
-      const sel = b.id === selectedId;
-      // Walls: a single mesh per building, lit by the same scene lights as
-      // the roof — replaces maplibre's flat fill-extrusion so the whole
-      // building reads as one shaded surface.
-      const walls = buildWallMesh(b, originLngLat, sel);
-      if (walls) this.group.add(walls);
-      // Roof faces.
-      for (const face of b.faces) {
-        const mesh = buildFaceMesh(face, originLngLat, sel);
+      const draw = buildBuildingDraw(b, originLngLat, b.id === selectedId);
+      if (!draw) continue;
+      // Add mesh per face (walls + roof) so triangulation stays planar.
+      for (const part of draw.parts) {
+        const mesh = makePartMesh(part, b.id === selectedId);
         if (mesh) this.group.add(mesh);
       }
-      // Outline: vertical wall corners + eave perimeter (where wall meets
-      // roof). This is the building's "boxy" silhouette regardless of roof
-      // shape; drawn with the heavier stroke.
-      const outline = buildSilhouetteLines(b, originLngLat);
-      if (outline) {
-        this.group.add(outline);
-        this.lineMaterials.push(outline.material as LineMaterial);
-      }
-      // Creases: roof-face edges above the eave (ridges, hips, gambrel
-      // breaks). Lighter stroke so they don't compete with the outline.
-      const creases = buildRoofCreaseLines(b, originLngLat);
-      if (creases) {
-        this.group.add(creases);
-        this.lineMaterials.push(creases.material as LineMaterial);
-      }
+      this.group.add(draw.silhouette);
+      this.group.add(draw.crease);
+      this.draws.push(draw);
     }
     this.map?.triggerRepaint();
   }
@@ -124,26 +121,65 @@ export class RoofLayer {
     _gl: WebGLRenderingContext | WebGL2RenderingContext,
     matrix: Float32Array | number[],
   ): void {
-    if (!this.origin || !this.renderer) return;
+    if (!this.origin || !this.renderer || !this.map) return;
     const scale = this.origin.meterInMercatorCoordinateUnits();
     const proj = new THREE.Matrix4().fromArray(matrix as unknown as number[]);
-    // Our meshes use vertex.x = east-metres, vertex.y = north-metres,
-    // vertex.z = up-metres. Mercator Y grows southward, so we flip Y when
-    // building the transform.
     const model = new THREE.Matrix4()
       .makeTranslation(this.origin.x, this.origin.y, this.origin.z)
       .scale(new THREE.Vector3(scale, -scale, scale));
     this.camera.projectionMatrix = proj.multiply(model);
-    // Fat-line widths are computed in screen space, so the material needs
-    // the live canvas pixel size each frame (it can change on map resize).
-    const canvas = this.map?.getCanvas();
-    if (canvas) {
-      for (const mat of this.lineMaterials) {
-        mat.resolution.set(canvas.width, canvas.height);
-      }
+    // View direction in our scene's metres frame, derived from maplibre's
+    // bearing + pitch. Bearing=0 looks north (+Y); pitch=0 looks straight
+    // down (-Z); pitch=60 tilts 60° off vertical toward the bearing.
+    const bearing = (this.map.getBearing() * Math.PI) / 180;
+    const pitch = (this.map.getPitch() * Math.PI) / 180;
+    this.viewDir.set(
+      Math.sin(bearing) * Math.sin(pitch),
+      Math.cos(bearing) * Math.sin(pitch),
+      -Math.cos(pitch),
+    );
+    // Reclassify every edge for every building.
+    for (const d of this.draws) this.updateOutlines(d);
+    // Update fat-line resolutions (canvas size can change on resize).
+    const canvas = this.map.getCanvas();
+    for (const d of this.draws) {
+      (d.silhouette.material as LineMaterial).resolution.set(canvas.width, canvas.height);
+      (d.crease.material as LineMaterial).resolution.set(canvas.width, canvas.height);
     }
     this.renderer.resetState();
     this.renderer.render(this.scene, this.camera);
+  }
+
+  private updateOutlines(d: BuildingDraw): void {
+    const silhouette: number[] = [];
+    const crease: number[] = [];
+    for (const edge of d.edges) {
+      // Sample each neighbour's normal vs the view direction. An edge is
+      // a silhouette edge iff its neighbours straddle the view — some
+      // front-facing, some back-facing. Boundary edges (only one
+      // neighbour, e.g. the wall-meets-ground line) are silhouette when
+      // that neighbour is front-facing and invisible-back-of-building
+      // otherwise. Internal creases (all neighbours on the same side of
+      // the view) get the thin stroke.
+      let hasFront = false;
+      let hasBack = false;
+      for (const fIdx of edge.faces) {
+        const dotN = d.parts[fIdx]!.normal.dot(this.viewDir);
+        if (dotN < 0) hasFront = true;
+        else if (dotN > 0) hasBack = true;
+      }
+      if (edge.faces.length === 1) {
+        if (hasFront) push(silhouette, edge);
+        // back-facing boundary edge: hide (it's behind the building)
+        continue;
+      }
+      if (hasFront && hasBack) push(silhouette, edge);
+      else if (hasFront) push(crease, edge);
+      // all back-facing: hide (the edge is on the far side of the
+      // building, occluded by front-facing faces)
+    }
+    setFatLineGeometry(d.silhouette, silhouette);
+    setFatLineGeometry(d.crease, crease);
   }
 
   private clearMeshes(): void {
@@ -160,25 +196,173 @@ export class RoofLayer {
       }
     });
     this.group.clear();
-    this.lineMaterials = [];
+    this.draws = [];
   }
 }
 
-function buildFaceMesh(
-  face: RoofFace,
+function push(positions: number[], e: EdgeRec): void {
+  positions.push(e.a.x, e.a.y, e.a.z, e.b.x, e.b.y, e.b.z);
+}
+
+function setFatLineGeometry(line: LineSegments2, positions: number[]): void {
+  const old = line.geometry as LineSegmentsGeometry;
+  old.dispose();
+  const g = new LineSegmentsGeometry();
+  if (positions.length > 0) g.setPositions(positions);
+  line.geometry = g;
+}
+
+// ---------------------------------------------------------------------------
+// BuildingModel construction
+// ---------------------------------------------------------------------------
+
+function buildBuildingDraw(
+  building: Building,
   originLngLat: [number, number],
-  selected: boolean,
-): THREE.Mesh | null {
-  const ring = face.geometry.coordinates[0] ?? [];
-  if (ring.length < 4) return null;
-  const verts: THREE.Vector3[] = [];
-  // Skip the closing duplicate vertex at the end of the ring.
-  for (let i = 0; i < ring.length - 1; i++) {
-    const c = ring[i] as unknown as [number, number, number];
-    const xy = lngLatToMeters([c[0], c[1]], originLngLat);
-    verts.push(new THREE.Vector3(xy[0], xy[1], c[2] ?? 0));
+  _selected: boolean,
+): BuildingDraw | null {
+  const ringLL = building.footprint.coordinates[0] ?? [];
+  if (ringLL.length < 4) return null;
+  const footprintM = ensureCCW(
+    ringLL.slice(0, -1).map((c) => {
+      const lonlat = c as unknown as [number, number];
+      return lngLatToMeters([lonlat[0], lonlat[1]], originLngLat);
+    }),
+  );
+  const eave = building.eave_height_m;
+
+  // 1) Collect roof faces as FaceParts.
+  const roofParts: FacePart[] = [];
+  for (const face of building.faces) {
+    const ring = face.geometry.coordinates[0] ?? [];
+    if (ring.length < 4) continue;
+    const verts: THREE.Vector3[] = [];
+    for (let i = 0; i < ring.length - 1; i++) {
+      const c = ring[i] as unknown as [number, number, number];
+      const [x, y] = lngLatToMeters([c[0], c[1]], originLngLat);
+      verts.push(new THREE.Vector3(x, y, c[2] ?? 0));
+    }
+    const normal = polygonNormal(verts);
+    if (!normal) continue;
+    roofParts.push({ ring: verts, normal });
   }
-  const geom = triangulatePlanarPolygon(verts);
+
+  // 2) Build wall faces whose TOP edges follow the actual roof profile
+  //    along each footprint edge. For a sawtooth that means a zigzag top;
+  //    for a gable it's flat at eave height; for either, the wall's top
+  //    edges precisely match roof eave / triangle-infill edges so the
+  //    silhouette pass can detect adjacency.
+  const wallParts: FacePart[] = [];
+  if (eave > 0) {
+    for (let i = 0; i < footprintM.length; i++) {
+      const A = footprintM[i]!;
+      const B = footprintM[(i + 1) % footprintM.length]!;
+      const wall = buildWallFollowingProfile(A, B, roofParts, eave);
+      if (wall) wallParts.push(wall);
+    }
+  }
+
+  const parts = [...wallParts, ...roofParts];
+
+  // 3) Walk every face boundary edge, dedup by quantised endpoint
+  //    positions, and accumulate the adjacent face indices.
+  const edgeMap = new Map<string, EdgeRec>();
+  for (let i = 0; i < parts.length; i++) {
+    const ring = parts[i]!.ring;
+    for (let j = 0; j < ring.length; j++) {
+      const a = ring[j]!;
+      const b = ring[(j + 1) % ring.length]!;
+      const key = edgeKey(a, b);
+      let rec = edgeMap.get(key);
+      if (!rec) {
+        rec = { a: a.clone(), b: b.clone(), faces: [] };
+        edgeMap.set(key, rec);
+      }
+      rec.faces.push(i);
+    }
+  }
+  const edges = Array.from(edgeMap.values());
+
+  // 4) Pre-allocate the silhouette / crease line objects; geometry is
+  //    rewritten each frame from updateOutlines().
+  const silhouette = makeFatLine([], EDGE_OUTLINE, OUTLINE_WIDTH_PX);
+  const crease = makeFatLine([], EDGE_CREASE, CREASE_WIDTH_PX);
+
+  return { parts, edges, silhouette, crease };
+}
+
+/** Build a wall mesh face that goes from A_ground → B_ground up the corner
+ *  at B, then back along the actual roof profile (collected from roof-face
+ *  vertices that land on segment AB), down the corner at A. The resulting
+ *  polygon's edges line up exactly with the roof's eave / infill edges
+ *  along this footprint side, so the silhouette pass can find their
+ *  adjacency in the edge dedup map. */
+function buildWallFollowingProfile(
+  A: [number, number],
+  B: [number, number],
+  roofParts: FacePart[],
+  defaultEave: number,
+): FacePart | null {
+  const dx = B[0] - A[0];
+  const dy = B[1] - A[1];
+  const len2 = dx * dx + dy * dy;
+  if (len2 < 1e-6) return null;
+
+  // Collect roof vertices that sit on this segment AB (projected within
+  // the [0, 1] parameter range AND close to the line in the perpendicular
+  // direction). Each contributes a (t, z, x, y) to the profile.
+  const TOL_PERP = 0.05;
+  type ProfilePt = { t: number; z: number; x: number; y: number };
+  const profile: ProfilePt[] = [];
+  const seen = new Set<string>();
+  for (const part of roofParts) {
+    for (const v of part.ring) {
+      const t = ((v.x - A[0]) * dx + (v.y - A[1]) * dy) / len2;
+      if (t < -1e-4 || t > 1 + 1e-4) continue;
+      const projX = A[0] + t * dx;
+      const projY = A[1] + t * dy;
+      const perpDist = Math.hypot(v.x - projX, v.y - projY);
+      if (perpDist > TOL_PERP) continue;
+      const key = `${Math.round(t * 1e6)},${Math.round(v.z * POS_QUANT)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      profile.push({ t: Math.max(0, Math.min(1, t)), z: v.z, x: v.x, y: v.y });
+    }
+  }
+  // Always anchor the endpoints to the eave so a gable / hip building with
+  // no roof vertices ON the front edge still gets a clean rectangular wall.
+  if (profile.length === 0 || profile[0]!.t > 1e-3) {
+    profile.unshift({ t: 0, z: defaultEave, x: A[0], y: A[1] });
+  }
+  if (profile[profile.length - 1]!.t < 1 - 1e-3) {
+    profile.push({ t: 1, z: defaultEave, x: B[0], y: B[1] });
+  }
+  profile.sort((a, b) => a.t - b.t);
+
+  // Skip profile points whose z is at or below 0 — they'd produce a
+  // zero-height wall on that side.
+  const maxZ = profile.reduce((acc, p) => Math.max(acc, p.z), 0);
+  if (maxZ <= 1e-3) return null;
+
+  // Build the wall ring CCW from outside: A_ground → B_ground → up the
+  // right corner along the profile points (reverse t order) → down the
+  // left corner.
+  const ring: THREE.Vector3[] = [];
+  ring.push(new THREE.Vector3(A[0], A[1], 0));
+  ring.push(new THREE.Vector3(B[0], B[1], 0));
+  for (let i = profile.length - 1; i >= 0; i--) {
+    const p = profile[i]!;
+    ring.push(new THREE.Vector3(p.x, p.y, p.z));
+  }
+  // Normal: perpendicular to AB in world XY, pointing OUTWARD. For CCW
+  // footprint, outward is the right-hand-side of AB direction.
+  const len = Math.sqrt(len2);
+  const normal = new THREE.Vector3(dy / len, -dx / len, 0);
+  return { ring, normal };
+}
+
+function makePartMesh(part: FacePart, selected: boolean): THREE.Mesh | null {
+  const geom = triangulatePlanarPolygon(part.ring);
   if (!geom) return null;
   const mat = new THREE.MeshLambertMaterial({
     color: selected ? BUILDING_HIGHLIGHT : BUILDING_COLOR,
@@ -187,159 +371,33 @@ function buildFaceMesh(
   return new THREE.Mesh(geom, mat);
 }
 
-/** Extrude the footprint into a single wall mesh, sharing the same
- *  material + lighting as the roof. Replaces maplibre's flat fill-
- *  extrusion so the building reads as one continuous shaded surface. */
-function buildWallMesh(
-  building: Building,
-  originLngLat: [number, number],
-  selected: boolean,
-): THREE.Mesh | null {
-  const eave = building.eave_height_m;
-  if (eave <= 0) return null;
-  const ringLL = building.footprint.coordinates[0] ?? [];
-  if (ringLL.length < 4) return null;
-  // ensureCCW so that each wall quad ends up with its outward normal
-  // (computed via cross product of edge1 × +Z) pointing AWAY from the
-  // building interior — otherwise Lambert lighting would flip and the
-  // walls would render as if lit from inside.
-  const ringM = ensureCCW(
-    ringLL.slice(0, -1).map((c) => {
-      const lonlat = c as unknown as [number, number];
-      return lngLatToMeters([lonlat[0], lonlat[1]], originLngLat);
-    }),
-  );
-  const positions: number[] = [];
-  for (let i = 0; i < ringM.length; i++) {
-    const a = ringM[i]!;
-    const b = ringM[(i + 1) % ringM.length]!;
-    // Two triangles per wall quad, wound so the outward normal is
-    // perpendicular to the wall in world XY (no vertical tilt).
-    positions.push(
-      a[0],
-      a[1],
-      0, // A_ground
-      b[0],
-      b[1],
-      0, // B_ground
-      b[0],
-      b[1],
-      eave, // B_eave
-      a[0],
-      a[1],
-      0, // A_ground
-      b[0],
-      b[1],
-      eave, // B_eave
-      a[0],
-      a[1],
-      eave, // A_eave
-    );
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  g.computeVertexNormals();
-  const mat = new THREE.MeshLambertMaterial({
-    color: selected ? BUILDING_HIGHLIGHT : BUILDING_COLOR,
-    side: THREE.DoubleSide,
-  });
-  return new THREE.Mesh(g, mat);
-}
-
-/** The building's silhouette skeleton: vertical edges at every footprint
- *  corner from ground to eave, plus the eave perimeter itself (footprint
- *  polygon traced at eave height). These together box the building in,
- *  regardless of what shape the roof takes — the user's "thick outline
- *  across the whole external". Returns a single fat-line LineSegments2 so
- *  width survives WebGL's `gl.lineWidth` clamp. */
-function buildSilhouetteLines(
-  building: Building,
-  originLngLat: [number, number],
-): LineSegments2 | null {
-  const ringLL = building.footprint.coordinates[0] ?? [];
-  if (ringLL.length < 4) return null;
-  const eave = building.eave_height_m;
-  const ringM: Array<[number, number]> = ringLL.slice(0, -1).map((c) => {
-    const lonlat = c as unknown as [number, number];
-    return lngLatToMeters([lonlat[0], lonlat[1]], originLngLat);
-  });
-  const positions: number[] = [];
-  for (let i = 0; i < ringM.length; i++) {
-    const a = ringM[i]!;
-    const b = ringM[(i + 1) % ringM.length]!;
-    // Vertical wall-corner segment at A.
-    positions.push(a[0], a[1], 0, a[0], a[1], eave);
-    // Horizontal eave segment from A to B at eave height.
-    positions.push(a[0], a[1], eave, b[0], b[1], eave);
-  }
-  return positions.length > 0 ? makeFatLine(positions, EDGE_OUTLINE, OUTLINE_WIDTH_PX) : null;
-}
-
-/** Ridges, hips, valleys, gambrel breaks — every roof-face edge whose
- *  endpoints aren't both sitting on the eave plane. Lighter colour and
- *  thinner stroke than the silhouette so it sits behind the building's
- *  outline visually. */
-function buildRoofCreaseLines(
-  building: Building,
-  originLngLat: [number, number],
-): LineSegments2 | null {
-  const EAVE_TOL = 0.05;
-  const eave = building.eave_height_m;
-  // De-duplicate edges shared between adjacent faces so each ridge / hip
-  // only renders once (it'd otherwise count twice — once per face).
-  const seen = new Set<string>();
-  const positions: number[] = [];
-  for (const face of building.faces) {
-    const ring = face.geometry.coordinates[0] ?? [];
-    if (ring.length < 4) continue;
-    const verts: Array<[number, number, number]> = [];
-    for (let i = 0; i < ring.length - 1; i++) {
-      const c = ring[i] as unknown as [number, number, number];
-      const [x, y] = lngLatToMeters([c[0], c[1]], originLngLat);
-      verts.push([x, y, c[2] ?? 0]);
-    }
-    for (let i = 0; i < verts.length; i++) {
-      const a = verts[i]!;
-      const b = verts[(i + 1) % verts.length]!;
-      // Skip edges that lie on the eave plane — those belong to the
-      // silhouette pass, not the crease pass.
-      if (Math.abs(a[2] - eave) < EAVE_TOL && Math.abs(b[2] - eave) < EAVE_TOL) continue;
-      const key = edgeKey(a, b);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      positions.push(a[0], a[1], a[2], b[0], b[1], b[2]);
-    }
-  }
-  return positions.length > 0 ? makeFatLine(positions, EDGE_CREASE, CREASE_WIDTH_PX) : null;
-}
-
-function edgeKey(a: [number, number, number], b: [number, number, number]): string {
-  // Round to mm so floating-point drift doesn't break the dedup.
-  const q = (n: number): number => Math.round(n * 1000);
-  const ka = `${q(a[0])},${q(a[1])},${q(a[2])}`;
-  const kb = `${q(b[0])},${q(b[1])},${q(b[2])}`;
-  return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
-}
-
 function makeFatLine(positions: number[], color: number, widthPx: number): LineSegments2 {
   const g = new LineSegmentsGeometry();
-  g.setPositions(positions);
+  if (positions.length > 0) g.setPositions(positions);
   const m = new LineMaterial({
     color,
     linewidth: widthPx,
-    // Resolution gets updated each frame from RoofLayer.render(); seed
-    // with something non-zero so the first frame doesn't draw zero-width
-    // lines.
     resolution: new THREE.Vector2(1, 1),
     worldUnits: false,
   });
   return new LineSegments2(g, m);
 }
 
-/** Earcut-based triangulator for a planar 3D polygon. Same shape as
- *  SceneView's helper but kept local so this layer has no React dependency. */
-function triangulatePlanarPolygon(verts: THREE.Vector3[]): THREE.BufferGeometry | null {
-  if (verts.length < 3) return null;
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Quantised positional key for dedup. Endpoints are sorted so an edge
+ *  added in either direction maps to the same key. */
+function edgeKey(a: THREE.Vector3, b: THREE.Vector3): string {
+  const ka = `${Math.round(a.x * POS_QUANT)},${Math.round(a.y * POS_QUANT)},${Math.round(a.z * POS_QUANT)}`;
+  const kb = `${Math.round(b.x * POS_QUANT)},${Math.round(b.y * POS_QUANT)},${Math.round(b.z * POS_QUANT)}`;
+  return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+}
+
+/** Unit normal of a planar polygon via Newell's method. Returns null if
+ *  the polygon is degenerate. */
+function polygonNormal(verts: THREE.Vector3[]): THREE.Vector3 | null {
   const n = new THREE.Vector3();
   for (let i = 0; i < verts.length; i++) {
     const a = verts[i]!;
@@ -349,7 +407,13 @@ function triangulatePlanarPolygon(verts: THREE.Vector3[]): THREE.BufferGeometry 
     n.z += (a.x - b.x) * (a.y + b.y);
   }
   if (n.lengthSq() < 1e-12) return null;
-  n.normalize();
+  return n.normalize();
+}
+
+function triangulatePlanarPolygon(verts: THREE.Vector3[]): THREE.BufferGeometry | null {
+  if (verts.length < 3) return null;
+  const n = polygonNormal(verts);
+  if (!n) return null;
   const u = new THREE.Vector3();
   const v = new THREE.Vector3();
   if (Math.abs(n.x) <= Math.abs(n.y) && Math.abs(n.x) <= Math.abs(n.z)) u.set(1, 0, 0);
