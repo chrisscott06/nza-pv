@@ -7,12 +7,10 @@ import { BuildingList } from './BuildingList.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 import { InspectorPanel } from './InspectorPanel.js';
 import { MapView } from './MapView.js';
-import { SceneView } from './SceneView.js';
 import { Toolbar } from './Toolbar.js';
 
 export function Workspace(): JSX.Element {
   useAutosave();
-  const view = useProject((s) => s.view);
   const project = useProject((s) => s.project);
   const markSaved = useProject((s) => s.markSaved);
   const undo = useProject((s) => s.undo);
@@ -55,8 +53,8 @@ export function Workspace(): JSX.Element {
 
   return (
     <div className="main">
-      <ErrorBoundary label={view === '3d' ? '3D scene' : 'Map'} key={view}>
-        {view === '3d' ? <SceneView /> : <MapView />}
+      <ErrorBoundary label="Map">
+        <MapView />
       </ErrorBoundary>
       <div className="map-overlays">
         <Toolbar />

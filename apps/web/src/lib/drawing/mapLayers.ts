@@ -53,6 +53,22 @@ export function installLayers(map: maplibregl.Map): void {
     },
   });
 
+  // 3D extrusion layer — invisible by default. `MapView` toggles its
+  // `visibility` to 'visible' when the user enters 3D mode so the buildings
+  // pop up out of the satellite tiles à la Google Maps.
+  map.addLayer({
+    id: 'buildings-extrusion',
+    type: 'fill-extrusion',
+    source: BUILDINGS_SRC,
+    layout: { visibility: 'none' },
+    paint: {
+      'fill-extrusion-color': ['case', ['boolean', ['get', 'selected'], false], '#fff1cf', '#f0ebe5'],
+      'fill-extrusion-height': ['get', 'height'],
+      'fill-extrusion-base': 0,
+      'fill-extrusion-opacity': 0.9,
+    },
+  });
+
   map.addLayer({
     id: 'draft-fill',
     type: 'fill',
@@ -88,6 +104,13 @@ export function updateBuildings(
     })),
   };
   src.setData(fc);
+}
+
+/** Show or hide the 3D extrusion layer. Called from MapView whenever the
+ *  global view mode changes between '2d' and '3d'. */
+export function setExtrusionVisible(map: maplibregl.Map, visible: boolean): void {
+  if (!map.getLayer('buildings-extrusion')) return;
+  map.setLayoutProperty('buildings-extrusion', 'visibility', visible ? 'visible' : 'none');
 }
 
 export function setDraft(map: maplibregl.Map, polygon: Polygon | null): void {

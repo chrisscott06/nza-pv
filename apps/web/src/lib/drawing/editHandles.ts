@@ -32,16 +32,6 @@ const MOVE_ARROWS_SVG = `
   <path d='M12 2 L8 6 L10.5 6 L10.5 10.5 L6 10.5 L6 8 L2 12 L6 16 L6 13.5 L10.5 13.5 L10.5 18 L8 18 L12 22 L16 18 L13.5 18 L13.5 13.5 L18 13.5 L18 16 L22 12 L18 8 L18 10.5 L13.5 10.5 L13.5 6 L16 6 Z' fill='currentColor'/>
 </svg>`.trim();
 
-const PIVOT_SVG = `
-<svg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'>
-  <circle cx='12' cy='12' r='9' fill='none' stroke='currentColor' stroke-width='1.5'/>
-  <circle cx='12' cy='12' r='2' fill='currentColor'/>
-  <line x1='12' y1='1' x2='12' y2='6' stroke='currentColor' stroke-width='1.4'/>
-  <line x1='12' y1='18' x2='12' y2='23' stroke='currentColor' stroke-width='1.4'/>
-  <line x1='1' y1='12' x2='6' y2='12' stroke='currentColor' stroke-width='1.4'/>
-  <line x1='18' y1='12' x2='23' y2='12' stroke='currentColor' stroke-width='1.4'/>
-</svg>`.trim();
-
 function makeEdgeEl(): HTMLDivElement {
   const el = document.createElement('div');
   el.className = 'edit-handle edge';
@@ -59,13 +49,6 @@ function makeMoveEl(): HTMLDivElement {
   const el = document.createElement('div');
   el.className = 'edit-handle move';
   el.innerHTML = MOVE_ARROWS_SVG;
-  return el;
-}
-
-function makePivotEl(): HTMLDivElement {
-  const el = document.createElement('div');
-  el.className = 'edit-handle pivot';
-  el.innerHTML = PIVOT_SVG;
   return el;
 }
 
@@ -98,17 +81,8 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
 
   // Track which marker (if any) the user is currently dragging so syncs skip it.
   let activeIndex:
-    | { kind: 'edge' | 'corner' | 'stretch' | 'move' | 'pivot'; index: number }
+    | { kind: 'edge' | 'corner' | 'stretch' | 'move'; index: number }
     | null = null;
-  // Pivot point in metres relative to `anchor`. Defaults to centroid; the user
-  // can drag it anywhere (snapping to centroid / corners / midpoints). All
-  // rotations happen around this point.
-  let pivotM: XY = (() => {
-    const v = polygonRingToMeters(building.footprint, anchor);
-    return [avg(v.map((p) => p[0])), avg(v.map((p) => p[1]))];
-  })();
-  // Snap radius in metres for pivot release.
-  const PIVOT_SNAP_M = 1.2;
 
   // ---- Edge midpoint markers (push-pull) -----------------------------------
   const edgeMarkers: maplibregl.Marker[] = [];
@@ -184,24 +158,33 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
       .addTo(map);
     cornerMarkers.push(marker);
 
+    // Rotation pivot is just the centroid of the building snapshot taken at
+    // drag start. (We dropped the standalone draggable pivot marker because
+    // it sat on top of the move handle and was the only thing the user could
+    // grab there.)
+    let cornerPivotM: XY = [0, 0];
     marker.on('dragstart', () => {
       activeIndex = { kind: 'corner', index: i };
       map.getCanvas().style.cursor = 'grabbing';
       const b = currentBuilding(building.id);
       if (!b) return;
       initialVerts = polygonRingToMeters(b.footprint, anchor);
+      cornerPivotM = [
+        avg(initialVerts.map((v) => v[0])),
+        avg(initialVerts.map((v) => v[1])),
+      ];
       const here = marker.getLngLat();
       const hereM = lngLatToMeters([here.lng, here.lat], anchor);
-      initialAngle = Math.atan2(hereM[1] - pivotM[1], hereM[0] - pivotM[0]);
+      initialAngle = Math.atan2(hereM[1] - cornerPivotM[1], hereM[0] - cornerPivotM[0]);
     });
     marker.on('drag', () => {
       const b = currentBuilding(building.id);
       if (!b) return;
       const here = marker.getLngLat();
       const hereM = lngLatToMeters([here.lng, here.lat], anchor);
-      const angle = Math.atan2(hereM[1] - pivotM[1], hereM[0] - pivotM[0]);
+      const angle = Math.atan2(hereM[1] - cornerPivotM[1], hereM[0] - cornerPivotM[0]);
       const delta = angle - initialAngle;
-      rotateBuildingAround(building.id, anchor, initialVerts, pivotM, delta);
+      rotateBuildingAround(building.id, anchor, initialVerts, cornerPivotM, delta);
       commitFaceRegen(building.id);
       syncMarkers();
     });
@@ -230,12 +213,7 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
     moveInitialVerts = polygonRingToMeters(b.footprint, anchor);
     const here = moveMarker.getLngLat();
     moveInitialMarkerM = lngLatToMeters([here.lng, here.lat], anchor);
-    pivotInitialAtMoveStart = [pivotM[0], pivotM[1]];
   });
-  // Pivot starts pinned to the centroid, so we offset it from the centroid
-  // by this delta. When the building moves, both centroid and pivot translate
-  // together; when the user manually moves the pivot, this delta updates.
-  let pivotInitialAtMoveStart: XY = [0, 0];
   moveMarker.on('drag', () => {
     const here = moveMarker.getLngLat();
     const hereM = lngLatToMeters([here.lng, here.lat], anchor);
@@ -243,61 +221,11 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
     const dy = hereM[1] - moveInitialMarkerM[1];
     const translated = moveInitialVerts.map(([x, y]) => [x + dx, y + dy] as XY);
     setFootprintFromMetres(building.id, translated, anchor);
-    pivotM = [pivotInitialAtMoveStart[0] + dx, pivotInitialAtMoveStart[1] + dy];
     commitFaceRegen(building.id);
     syncMarkers();
   });
   moveMarker.on('dragend', () => {
     commitFaceRegen(building.id);
-    activeIndex = null;
-    map.getCanvas().style.cursor = '';
-    syncMarkers();
-  });
-
-  // ---- Pivot marker (rotation centre) --------------------------------------
-  const pivotMarker = new maplibregl.Marker({
-    element: makePivotEl(),
-    draggable: true,
-    anchor: 'center',
-  })
-    .setLngLat(metersToLngLat(pivotM, anchor))
-    .addTo(map);
-
-  pivotMarker.on('dragstart', () => {
-    activeIndex = { kind: 'pivot', index: 0 };
-    map.getCanvas().style.cursor = 'grabbing';
-  });
-  pivotMarker.on('drag', () => {
-    const here = pivotMarker.getLngLat();
-    pivotM = lngLatToMeters([here.lng, here.lat], anchor);
-  });
-  pivotMarker.on('dragend', () => {
-    // Snap to nearest of: centroid, 4 corners, 4 edge midpoints (if within
-    // PIVOT_SNAP_M metres). Lets users park the pivot precisely.
-    const b = currentBuilding(building.id);
-    if (b) {
-      const verts = polygonRingToMeters(b.footprint, anchor);
-      if (verts.length >= 4) {
-        const targets: XY[] = [];
-        targets.push([avg(verts.map((v) => v[0])), avg(verts.map((v) => v[1]))]);
-        for (let i = 0; i < 4; i++) {
-          targets.push(verts[i]!);
-          const a = verts[i]!;
-          const c = verts[(i + 1) % 4]!;
-          targets.push([(a[0] + c[0]) / 2, (a[1] + c[1]) / 2]);
-        }
-        let best = pivotM;
-        let bestDist = PIVOT_SNAP_M;
-        for (const t of targets) {
-          const d = Math.hypot(t[0] - pivotM[0], t[1] - pivotM[1]);
-          if (d < bestDist) {
-            best = t;
-            bestDist = d;
-          }
-        }
-        pivotM = best;
-      }
-    }
     activeIndex = null;
     map.getCanvas().style.cursor = '';
     syncMarkers();
@@ -313,14 +241,9 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
     const cy = avg(verts.map((v) => v[1]));
     for (let i = 0; i < 4; i++) {
       const v = verts[i]!;
-      // Stretch marker sits on the corner itself.
       if (!(activeIndex?.kind === 'stretch' && activeIndex.index === i)) {
         stretchMarkers[i]?.setLngLat(metersToLngLat(v, anchor));
       }
-      // Rotation marker sits ROTATE_OFFSET_M outside the corner along the
-      // outward diagonal (centroid → corner direction), plus an additional
-      // fixed-pixel offset so it never overlaps the stretch handle even when
-      // the map is zoomed out far enough that 4.5m is only a few pixels.
       if (!(activeIndex?.kind === 'corner' && activeIndex.index === i)) {
         const dx = v[0] - cx;
         const dy = v[1] - cy;
@@ -329,8 +252,6 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
         const ny = dy / len;
         const offsetM: XY = [v[0] + nx * ROTATE_OFFSET_M, v[1] + ny * ROTATE_OFFSET_M];
         cornerMarkers[i]?.setLngLat(metersToLngLat(offsetM, anchor));
-        // ny is +metres-north; in screen coordinates +Y is *down*, so the
-        // pixel offset's Y component flips sign.
         cornerMarkers[i]?.setOffset([nx * ROTATE_OFFSET_PX, -ny * ROTATE_OFFSET_PX]);
       }
       const a = v;
@@ -343,9 +264,6 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
     if (activeIndex?.kind !== 'move') {
       moveMarker.setLngLat(metersToLngLat([cx, cy], anchor));
     }
-    if (activeIndex?.kind !== 'pivot') {
-      pivotMarker.setLngLat(metersToLngLat(pivotM, anchor));
-    }
   }
 
   syncMarkers();
@@ -355,7 +273,6 @@ export function mountEditHandles(map: maplibregl.Map, building: Building): () =>
     for (const m of cornerMarkers) m.remove();
     for (const m of stretchMarkers) m.remove();
     moveMarker.remove();
-    pivotMarker.remove();
   };
 }
 

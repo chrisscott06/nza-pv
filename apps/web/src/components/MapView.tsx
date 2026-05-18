@@ -1,7 +1,7 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import maplibregl, { type StyleSpecification } from 'maplibre-gl';
 import { useEffect, useRef, useState } from 'react';
-import { installLayers, updateBuildings } from '../lib/drawing/mapLayers.js';
+import { installLayers, setExtrusionVisible, updateBuildings } from '../lib/drawing/mapLayers.js';
 import { useMapTools } from '../lib/drawing/useMapTools.js';
 import { useProject } from '../store/projectStore.js';
 
@@ -34,6 +34,7 @@ export function MapView(): JSX.Element {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const initialView = useProject((s) => s.project?.view?.map ?? null);
   const setCamera = useProject((s) => s.setCamera);
+  const view = useProject((s) => s.view);
   // Used to re-fire useMapTools' building sync once the map style has actually
   // finished loading — without this, a fresh map mount can race the project
   // load and the initial buildings render with empty source data.
@@ -55,16 +56,15 @@ export function MapView(): JSX.Element {
       bearing: initialView?.bearing ?? 0,
       pitch: initialView?.pitch ?? 0,
       maxZoom: 21,
+      maxPitch: 70,
       attributionControl: { compact: true },
-      // 2D-only: no right-click rotation, no shift-drag pitch.
-      dragRotate: false,
-      pitchWithRotate: false,
-      touchPitch: false,
-      // Disable right-click context-menu hijack while we're at it; otherwise
-      // a stray right-click in select mode triggers the maplibre rotation
-      // gesture which we've also disabled, but the menu still flickers.
     });
+    // Rotation + pitch are toggled by view mode (see effect below). Start
+    // off in 2D-locked mode; the effect will enable them when the user
+    // switches to 3D.
+    map.dragRotate.disable();
     map.touchZoomRotate.disableRotation();
+    map.touchPitch.disable();
     map.on('error', (e) => {
       // If the initial style fails (offline / blocked), swap to OSM raster.
       if (!map.isStyleLoaded()) map.setStyle(fallbackStyle);
@@ -135,6 +135,30 @@ export function MapView(): JSX.Element {
   }, []);
 
   useMapTools(mapRef);
+
+  // React to the global 2D / 3D toggle. In 3D the map tilts to ~60° and
+  // shows the building-extrusion layer; drag-rotate is enabled so the user
+  // can spin around. In 2D the camera flattens back to north-up top-down
+  // and the extrusions hide.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const apply = (): void => {
+      if (view === '3d') {
+        map.easeTo({ pitch: 60, duration: 700 });
+        map.dragRotate.enable();
+        map.touchPitch.enable();
+        setExtrusionVisible(map, true);
+      } else {
+        map.easeTo({ pitch: 0, bearing: 0, duration: 700 });
+        map.dragRotate.disable();
+        map.touchPitch.disable();
+        setExtrusionVisible(map, false);
+      }
+    };
+    if (map.getLayer('buildings-extrusion')) apply();
+    else map.once('load', apply);
+  }, [view]);
 
   return <div ref={container} className="map-root" data-testid="map-root" />;
 }
