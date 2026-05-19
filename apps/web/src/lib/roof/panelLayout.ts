@@ -86,7 +86,22 @@ export function layoutPanels(
   // always match what's on screen.
   const coverage = Math.max(0, Math.min(100, face.max_coverage_pct ?? 70)) / 100;
   const targetCount = Math.floor((face.area_m2 * coverage) / area);
-  const limited = best.slice(0, targetCount);
+
+  // Sort the grid by distance from the inset center so that as the user
+  // lowers coverage, panels get pruned from the edges inwards — the
+  // remaining array sits centred on the roof, the way a real install
+  // would group around the structural sweet spot rather than huddling
+  // in a corner. Ties stay row-major (no perceptible effect either way).
+  const centerU = (minU + maxU) / 2;
+  const centerV = (minV + maxV) / 2;
+  const byCenter = [...best].sort((a, b) => {
+    const acx = (a.uStart + a.uEnd) / 2 - centerU;
+    const acy = (a.vStart + a.vEnd) / 2 - centerV;
+    const bcx = (b.uStart + b.uEnd) / 2 - centerU;
+    const bcy = (b.vStart + b.vEnd) / 2 - centerV;
+    return acx * acx + acy * acy - (bcx * bcx + bcy * bcy);
+  });
+  const limited = byCenter.slice(0, targetCount);
 
   return limited.map((q) => ({
     corners: [
