@@ -235,6 +235,11 @@ export type RoofFace = {
   is_pv_eligible: boolean; // default: 0 ≤ tilt ≤ 60° → true
   max_coverage_pct: number; // default 70
   panel_size_m2: number; // default 1.95
+  /** How many separate PV arrays to lay out on this face — splits the
+   *  panel grid into N strips along the face's longer axis with a
+   *  walkway gap between them. Mirrors the way solar designers group
+   *  panels for inverter strings / maintenance access. Default 1. */
+  array_count?: number;
 };
 
 // --- Defaults ---------------------------------------------------------------

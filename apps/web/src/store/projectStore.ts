@@ -41,6 +41,7 @@ type FaceOverrides = {
   is_pv_eligible?: boolean;
   max_coverage_pct?: number;
   panel_size_m2?: number;
+  array_count?: number;
 };
 
 type State = {
@@ -88,6 +89,7 @@ type Actions = {
   toggleFaceEligibility: (buildingId: string, faceId: string) => void;
   setFaceCoverage: (buildingId: string, faceId: string, pct: number) => void;
   setFacePanelSize: (buildingId: string, faceId: string, m2: number) => void;
+  setFaceArrayCount: (buildingId: string, faceId: string, n: number) => void;
   resetFaceOverrides: (buildingId: string, faceId: string) => void;
 
   markSaved: () => void;
@@ -354,6 +356,7 @@ export const useProject = create<ProjectStore>((set, get) => ({
               is_pv_eligible: o.is_pv_eligible ?? f.is_pv_eligible,
               max_coverage_pct: o.max_coverage_pct ?? f.max_coverage_pct,
               panel_size_m2: o.panel_size_m2 ?? f.panel_size_m2,
+              array_count: o.array_count ?? f.array_count,
             };
           });
         }),
@@ -456,6 +459,25 @@ export const useProject = create<ProjectStore>((set, get) => ({
       return { project: next.project, faceOverrides: next.faceOverrides };
     }),
 
+  setFaceArrayCount: (buildingId, faceId, n) =>
+    set((s) => {
+      if (!s.project) return s;
+      const next = produce(s, (draft) => {
+        const b = draft.project!.buildings.find((x) => x.id === buildingId);
+        const f = b?.faces.find((x) => x.id === faceId);
+        if (!f || !b) return;
+        const clamped = Math.max(1, Math.min(8, Math.floor(n)));
+        f.array_count = clamped;
+        const key = `${buildingId}|${f.role}|${f.cardinal}`;
+        draft.faceOverrides[key] = {
+          ...(draft.faceOverrides[key] ?? {}),
+          array_count: clamped,
+        };
+        touch(draft.project!);
+      });
+      return { project: next.project, faceOverrides: next.faceOverrides };
+    }),
+
   resetFaceOverrides: (buildingId, faceId) =>
     set((s) => {
       if (!s.project) return s;
@@ -466,6 +488,7 @@ export const useProject = create<ProjectStore>((set, get) => ({
         f.max_coverage_pct = 70;
         f.panel_size_m2 = DEFAULT_PANEL_SIZE_M2;
         f.is_pv_eligible = f.tilt_deg >= 0 && f.tilt_deg <= 60;
+        f.array_count = 1;
         const key = `${buildingId}|${f.role}|${f.cardinal}`;
         delete draft.faceOverrides[key];
         touch(draft.project!);

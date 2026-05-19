@@ -1,6 +1,6 @@
 // Inspector panel — contextual on the current selection.
 
-import { PANEL_PRESETS, type RoofFace, summarisePv, summariseFaces } from '@nza-pv/shared';
+import { PANEL_PRESETS, type RoofFace, summariseFaces, summarisePv } from '@nza-pv/shared';
 import { useState } from 'react';
 import { useShallow } from 'zustand/shallow';
 import { regenerateFaces } from '../lib/roof/regenerate.js';
@@ -25,6 +25,7 @@ export function InspectorPanel(): JSX.Element {
   const toggleFaceEligibility = useProject((s) => s.toggleFaceEligibility);
   const setFaceCoverage = useProject((s) => s.setFaceCoverage);
   const setFacePanelSize = useProject((s) => s.setFacePanelSize);
+  const setFaceArrayCount = useProject((s) => s.setFaceArrayCount);
   const resetFaceOverrides = useProject((s) => s.resetFaceOverrides);
 
   const [renaming, setRenaming] = useState(false);
@@ -98,6 +99,19 @@ export function InspectorPanel(): JSX.Element {
             {PANEL_PRESETS.map((p) => (
               <option key={p.m2} value={p.m2}>
                 {p.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field-row">
+          <label title="Split this face into N PV arrays separated by a walkway gap">Arrays</label>
+          <select
+            value={face.array_count ?? 1}
+            onChange={(e) => setFaceArrayCount(building.id, face.id, Number(e.target.value))}
+          >
+            {[1, 2, 3, 4, 5, 6].map((n) => (
+              <option key={n} value={n}>
+                {n}
               </option>
             ))}
           </select>
